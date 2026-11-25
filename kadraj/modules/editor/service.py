@@ -18,6 +18,7 @@ import hashlib
 import json
 import mimetypes
 import re
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -649,7 +650,7 @@ class EditorService(QObject):
         return hashlib.sha1(blob.encode()).hexdigest()[:12]
 
     def preview_path(self) -> Path:
-        base = (self.ctx.project.root / ".kadraj" / "cache" / "preview") if self.project_open else Path("/tmp/kadraj-preview")
+        base = (self.ctx.project.root / ".kadraj" / "cache" / "preview") if self.project_open else Path(tempfile.gettempdir()) / "kadraj-preview"
         return base / f"{self.digest()}.mp4"
 
     def _run_preview(self, job: Job, jc: Any) -> Dict[str, Any]:
@@ -766,7 +767,7 @@ class EditorService(QObject):
             self._fail(smart("no_clip"))
             return
         c = found[1]
-        wav_dir = self._wav_dir() if self.project_open else Path("/tmp")
+        wav_dir = self._wav_dir() if self.project_open else Path(tempfile.gettempdir())
 
         class _T(QRunnable):
             def run(_self) -> None:                                         # noqa: N805

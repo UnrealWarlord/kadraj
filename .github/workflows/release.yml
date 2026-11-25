@@ -1,0 +1,269 @@
+# KADRAJ sürüm paketleri: Linux (.tar.gz) + Windows (setup.exe), her biri .sha256 ile.
+#
+# İki şekilde çalışır:
+#   1) Elle deneme  → GitHub'da  Actions ▸ "Sürüm paketleri" ▸ Run workflow.
+#                     Paketler yalnızca bu çalıştırmanın "Artifacts" bölümünde durur (indirilebilir, 30 gün).
+#   2) Release yayımlanınca → paketler o release'e otomatik EKLENİR (varsa üzerine yazar).
+#                     Not: iş akışı, etiketin gösterdiği commit'teki .github/workflows/release.yml ile çalışır;
+#                     bu dosya depoda olduktan SONRA etiket/release oluşturun.
+#
+# Dosya adları (README'de yazılı, değiştirmeyin):
+#   KADRAJ-<sürüm>-linux-x86_64.tar.gz       (+ .sha256)
+#   KADRAJ-<sürüm>-windows-x64-setup.exe     (+ .sha256)
+# <sürüm>, kadraj/version.py içinden okunur.
+name: Sürüm paketleri
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------------------------
+  linux:
+    name: Linux paketi (tar.gz)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write          # release'e dosya eklemek için
+    steps:
+      - name: Kodu indir
+        uses: actions/checkout@v4
+
+      - name: Etiket ile sürüm tutarlı mı?
+        if: github.event_name == 'release'
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          VERSION="$(sed -n 's/^__version__ *= *"\([^"]*\)".*/\1/p' kadraj/version.py | head -n1)"
+          if [ "${TAG#v}" != "$VERSION" ]; then
+            echo "::warning title=Sürüm uyuşmuyor::Etiket '$TAG' ama kadraj/version.py sürümü '$VERSION'. Dosya adları $VERSION ile üretilir."
+          fi
+
+      # Docker (AlmaLinux 9, glibc 2.34) içinde PyInstaller + paketlenmiş uygulamanın --selftest'i.
+      # Selftest "SELFTEST TAMAM" vermezse bu adım başarısız olur (kapı).
+      - name: Paketi derle (Docker + selftest)
+        run: bash packaging/build_linux.sh
+
+      - name: Paketleri sakla (Artifacts)
+        uses: actions/upload-artifact@v4
+        with:
+          name: KADRAJ-linux-x86_64
+          path: |
+            dist/KADRAJ-*-linux-x86_64.tar.gz
+            dist/KADRAJ-*-linux-x86_64.tar.gz.sha256
+          if-no-files-found: error
+          compression-level: 0          # .tar.gz zaten sıkıştırılmış
+          retention-days: 30
+
+      - name: Release'e ekle
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          gh release upload "$TAG" \
+            dist/KADRAJ-*-linux-x86_64.tar.gz \
+            dist/KADRAJ-*-linux-x86_64.tar.gz.sha256 \
+            --clobber --repo "$GITHUB_REPOSITORY"
+
+  # ---------------------------------------------------------------------------------------------
+  windows:
+    name: Windows kurulumu (setup.exe)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write          # release'e dosya eklemek için
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Kodu indir
+        uses: actions/checkout@v4
+
+      - name: Python 3.12 kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Sürümü ve PyInstaller sabitlerini oku
+        id: meta
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          # Sürüm: kadraj/version.py. PyInstaller sürümü: Linux derlemesiyle AYNI olsun diye packaging/Dockerfile.linux'tan.
+          $ver   = [regex]::Match((Get-Content kadraj/version.py -Raw), '__version__\s*=\s*"([^"]+)"').Groups[1].Value
+          $docker = Get-Content packaging/Dockerfile.linux -Raw
+          $pyi   = [regex]::Match($docker, '(?m)^ARG PYINSTALLER_VERSION=(\S+)').Groups[1].Value
+          $hooks = [regex]::Match($docker, '(?m)^ARG PYINSTALLER_HOOKS_VERSION=(\S+)').Groups[1].Value
+          if (-not $ver -or -not $pyi -or -not $hooks) { throw "Sürüm/sabitler okunamadı (version='$ver', pyinstaller='$pyi', hooks='$hooks')" }
+          "version=$ver"        >> $env:GITHUB_OUTPUT
+          "pyinstaller=$pyi"    >> $env:GITHUB_OUTPUT
+          "hooks=$hooks"        >> $env:GITHUB_OUTPUT
+          Write-Host "KADRAJ $ver · PyInstaller $pyi · hooks-contrib $hooks"
+          if ($env:EVENT_NAME -eq 'release' -and $env:TAG.TrimStart('v') -ne $ver) {
+            Write-Host "::warning title=Sürüm uyuşmuyor::Etiket '$($env:TAG)' ama kadraj/version.py sürümü '$ver'. Dosya adları $ver ile üretilir."
+          }
+
+      - name: Bağımlılıkları kur (pytest hariç) + PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          $req = Join-Path $env:RUNNER_TEMP "requirements-runtime.txt"
+          Get-Content requirements.txt | Where-Object { $_ -notmatch '^\s*(pytest|pytest-qt)([<>=~!;\s]|$)' } | Set-Content $req
+          python -m pip install -r $req "pyinstaller==${{ steps.meta.outputs.pyinstaller }}" "pyinstaller-hooks-contrib==${{ steps.meta.outputs.hooks }}"
+
+      - name: PyInstaller ile paketle
+        run: python -m PyInstaller packaging/kadraj.spec --noconfirm --clean
+
+      - name: FFmpeg kur (selftest'in video bölümü için; olmazsa o bölüm atlanır)
+        continue-on-error: true
+        run: |
+          if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) { choco install ffmpeg -y --no-progress }
+          ffmpeg -version | Select-Object -First 1
+
+      # KADRAJ.exe konsolsuzdur (çıktısı görünmez); aynı uygulamanın konsollu kardeşi KADRAJ-console.exe çıktıyı verir.
+      - name: Paketlenmiş uygulamanın selftest'i (kapı)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+          $log = Join-Path $env:RUNNER_TEMP "selftest.log"
+          & ".\dist\KADRAJ\KADRAJ-console.exe" --selftest *>&1 | Tee-Object -FilePath $log
+          $code = $LASTEXITCODE
+          if ($code -ne 0 -or -not (Select-String -Path $log -Pattern "SELFTEST TAMAM" -Quiet)) {
+            throw "Paketlenmiş KADRAJ selftest geçemedi (çıkış kodu $code). Günlük: $log"
+          }
+
+      - name: Inno Setup'ı hazırla (yoksa kur)
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          if (-not (Test-Path $iscc)) { throw "ISCC.exe bulunamadı: $iscc" }
+          if (-not (Test-Path (Join-Path (Split-Path $iscc) "Languages\Turkish.isl"))) { throw "Inno Setup'ta Turkish.isl yok" }
+          "ISCC=$iscc" >> $env:GITHUB_ENV
+
+      - name: Kurulum paketini (setup.exe) derle + sha256
+        run: |
+          $ver = "${{ steps.meta.outputs.version }}"
+          & $env:ISCC "/DAppVersion=$ver" packaging\windows\kadraj.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC başarısız (çıkış kodu $LASTEXITCODE)" }
+          $name  = "KADRAJ-$ver-windows-x64-setup.exe"
+          $setup = Join-Path "dist" $name
+          if (-not (Test-Path $setup)) { throw "Beklenen dosya oluşmadı: $setup" }
+          $hash = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLower()
+          # sha256sum -c ile doğrulanabilsin: "<hash>  <ad>" + LF (CRLF değil)
+          [System.IO.File]::WriteAllText((Join-Path (Get-Location) "$setup.sha256"), "$hash  $name`n")
+          Get-ChildItem dist -Filter "KADRAJ-*-windows-x64-setup.exe*" | Format-Table Name, Length
+
+      # Kurulum paketinin gerçekten kurulup çalıştığını, kaldırmanın kullanıcı verisini koruduğunu denetler (kapı).
+      - name: Kurulum / çalıştırma / kaldırma denemesi (sessiz)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+          $ver   = "${{ steps.meta.outputs.version }}"
+          $setup = (Resolve-Path "dist\KADRAJ-$ver-windows-x64-setup.exe").Path
+          $dir   = Join-Path $env:RUNNER_TEMP "kadraj-kurulum"
+          $keep  = Join-Path $env:USERPROFILE ".kadraj"
+          New-Item -ItemType Directory -Force $keep | Out-Null
+          Set-Content -Path (Join-Path $keep "korunmali.txt") -Value "bu dosya kaldirmadan sonra da durmali"
+
+          $p = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/SP-","/DIR=$dir" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Kurulum başarısız (çıkış kodu $($p.ExitCode))" }
+          foreach ($f in "KADRAJ.exe","KADRAJ-console.exe","unins000.exe") {
+            if (-not (Test-Path (Join-Path $dir $f))) { throw "Kurulumda eksik: $f" }
+          }
+          $lnk = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\KADRAJ.lnk"
+          if (-not (Test-Path $lnk)) { throw "Başlat menüsü kısayolu yok: $lnk" }
+
+          $log = Join-Path $env:RUNNER_TEMP "selftest-kurulu.log"
+          & (Join-Path $dir "KADRAJ-console.exe") --selftest *>&1 | Tee-Object -FilePath $log
+          if ($LASTEXITCODE -ne 0 -or -not (Select-String -Path $log -Pattern "SELFTEST TAMAM" -Quiet)) {
+            throw "Kurulu uygulamanın selftest'i geçemedi (çıkış kodu $LASTEXITCODE)"
+          }
+
+          Start-Process -FilePath (Join-Path $dir "unins000.exe") -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait
+          # Kaldırıcı kendini geçici klasöre kopyalayıp orada çalışır: klasörün gitmesini bekle.
+          $deadline = (Get-Date).AddSeconds(90)
+          while ((Test-Path (Join-Path $dir "KADRAJ.exe")) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }
+          if (Test-Path (Join-Path $dir "KADRAJ.exe")) { throw "Kaldırma sonrası KADRAJ.exe hâlâ duruyor" }
+          if (Test-Path $lnk) { throw "Kaldırma sonrası Başlat menüsü kısayolu hâlâ duruyor" }
+          if (-not (Test-Path (Join-Path $keep "korunmali.txt"))) { throw "Kaldırma kullanıcı verisini sildi: $keep" }
+          Write-Host "Kurulum → selftest → kaldırma tamam; $keep korundu."
+
+      - name: Paketleri sakla (Artifacts)
+        uses: actions/upload-artifact@v4
+        with:
+          name: KADRAJ-windows-x64
+          path: |
+            dist/KADRAJ-*-windows-x64-setup.exe
+            dist/KADRAJ-*-windows-x64-setup.exe.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+      - name: Selftest günlüklerini sakla
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-selftest-gunlukleri
+          path: ${{ runner.temp }}/selftest*.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Release'e ekle
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          $files = Get-ChildItem dist -Filter "KADRAJ-*-windows-x64-setup.exe*" | ForEach-Object { $_.FullName }
+          if (-not $files) { throw "Yüklenecek dosya yok" }
+          gh release upload $env:TAG @files --clobber --repo $env:GITHUB_REPOSITORY
+          if ($LASTEXITCODE -ne 0) { throw "gh release upload başarısız" }
+
+  # ---------------------------------------------------------------------------------------------
+  # Bilgi amaçlı: Windows'a özgü hataları görmek için tüm test takımı. Paketlemeyi engellemez
+  # (diğer işler bunu beklemez; job düzeyinde continue-on-error de açık).
+  windows-tests:
+    name: Windows testleri (bilgi amaçlı)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    continue-on-error: true
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Kodu indir
+        uses: actions/checkout@v4
+
+      - name: Python 3.12 kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Bağımlılıkları kur (pytest dahil)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: FFmpeg kur (olmazsa ffmpeg isteyen testler atlanır)
+        continue-on-error: true
+        run: |
+          if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) { choco install ffmpeg -y --no-progress }
+
+      - name: pytest
+        env:
+          QT_QPA_PLATFORM: offscreen
+          PYTHONUTF8: "1"
+        run: python -m pytest -q -o addopts="" -p no:cacheprovider

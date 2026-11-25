@@ -230,13 +230,23 @@ def test_dynamic_subtitles_watermark_freeze_render(media, tmp_path):
     assert probe(out).duration == pytest.approx(tl.duration, abs=0.4)
 
 
+def test_screen_recording_command_uses_gdigrab_on_windows(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "win32")
+    cmd = au.recording_command("screen", "x.mp4", ffmpeg="ffmpeg", env={})      # DISPLAY gerekmez
+    assert "gdigrab" in cmd and "desktop" in cmd and "x11grab" not in cmd
+    with pytest.raises(SmartError) as ei:                                      # web kamerası Windows'ta henüz yok → anlaşılır hata
+        au.recording_command("webcam", "x.mp4", ffmpeg="ffmpeg", env={})
+    assert ei.value.code == "editor.no_source"
+
+
 @needs_ffmpeg
 def test_screen_and_webcam_recording_command_and_run(tmp_path):
-    with pytest.raises(SmartError) as ei:
-        au.recording_command("screen", "x.mp4", env={})                          # DISPLAY yok
-    assert ei.value.code == "editor.no_source"
-    cmd = au.recording_command("screen", "x.mp4", env={"DISPLAY": ":0"})
-    assert "x11grab" in cmd and ":0" in cmd
+    if sys.platform != "win32":                                                  # x11grab/DISPLAY yalnızca Linux'ta
+        with pytest.raises(SmartError) as ei:
+            au.recording_command("screen", "x.mp4", env={})                      # DISPLAY yok
+        assert ei.value.code == "editor.no_source"
+        cmd = au.recording_command("screen", "x.mp4", env={"DISPLAY": ":0"})
+        assert "x11grab" in cmd and ":0" in cmd
     out = str(tmp_path / "rec.mp4")
     rec = au.start_recording("webcam", out, source=["-f", "lavfi", "-i", "testsrc=s=160x90:r=10"])
     import time

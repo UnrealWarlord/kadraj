@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_main_selftest_passes_in_a_clean_process(tmp_path):
-    env = {**os.environ, "QT_QPA_PLATFORM": "offscreen", "HOME": str(tmp_path / "home")}
+    env = {**os.environ, "QT_QPA_PLATFORM": "offscreen", "HOME": str(tmp_path / "home"), "USERPROFILE": str(tmp_path / "home")}
     env.pop("KADRAJ_HOME", None)
     shots = tmp_path / "shots"
     proc = subprocess.run([sys.executable, str(ROOT / "main.py"), "--selftest", "--screenshots", str(shots)],

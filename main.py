@@ -23,14 +23,27 @@ def _arg_value(argv: List[str], name: str) -> Optional[str]:
     return None
 
 
+def _utf8_stdio() -> None:
+    """Windows'ta yönlendirilmiş çıktı (CI günlüğü, boru) ANSI kod sayfasına düşer; Türkçe harfler hata verirdi.
+    Konsolsuz (pencereli) paketlenmiş uygulamada ``sys.stdout`` yoktur (``None``) — o durumda atlanır."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except (OSError, ValueError):
+                pass
+
+
 def selftest(argv: Optional[List[str]] = None) -> int:
     """Çekirdeğin ayakta olduğunu kanıtlar. Gerçek ``~/.kadraj``'a dokunmaz, ağa çıkmaz."""
     argv = argv or []
     if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    tmp = tempfile.TemporaryDirectory(prefix="kadraj-selftest-")
+    tmp = tempfile.TemporaryDirectory(prefix="kadraj-selftest-", ignore_cleanup_errors=True)   # Windows: açık dosya silmeyi engeller
     os.environ["KADRAJ_HOME"] = str(Path(tmp.name) / "home")
     os.environ["HOME"] = tmp.name
+    os.environ["USERPROFILE"] = tmp.name                  # Windows'ta Path.home() HOME'a değil USERPROFILE'a bakar
     results: List[tuple] = []
 
     def check(name: str, ok: bool, detail: str = "") -> None:
@@ -321,6 +334,9 @@ def _selftest_ai(ctx, check, tmpdir: str) -> None:
 
 def main(argv: Optional[List[str]] = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    _utf8_stdio()
+    from kadraj import frozen
+    frozen.apply()                                       # yalnızca paketlenmiş uygulamada: alt süreç ortamı / konsol penceresi
     if "--selftest" in argv:
         return selftest(argv)
     from kadraj.ui.shell.app import run

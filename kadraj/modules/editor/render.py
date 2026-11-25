@@ -7,6 +7,7 @@ import copy
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -178,8 +179,8 @@ _hw_thread: Optional[threading.Thread] = None
 
 def _detect_real() -> Dict[str, bool]:
     src = ["-f", "lavfi", "-i", "color=c=black:s=256x256:d=0.2:r=10"]
-    nv = _probe_encode(src + ["-c:v", "h264_nvenc", "-f", "null", "-"]) if Path("/dev/nvidiactl").exists() or \
-        Path("/proc/driver/nvidia").exists() else False
+    has_nvidia = sys.platform == "win32" or Path("/dev/nvidiactl").exists() or Path("/proc/driver/nvidia").exists()   # Windows'ta aygıt dosyası yok: deneme kodlaması karar verir
+    nv = _probe_encode(src + ["-c:v", "h264_nvenc", "-f", "null", "-"]) if has_nvidia else False
     va = _probe_encode(["-vaapi_device", VAAPI_DEVICE, *src, "-vf", "format=nv12,hwupload", "-c:v", "h264_vaapi", "-f", "null", "-"]) \
         if Path(VAAPI_DEVICE).exists() else False
     return {"nvenc": nv, "vaapi": va}

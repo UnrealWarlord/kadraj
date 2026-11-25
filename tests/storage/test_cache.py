@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import time
 
 import pytest
@@ -76,6 +77,7 @@ def test_older_than_days_keeps_fresh_files(project):
     assert (project / HIDDEN_DIR / "cache" / "thumb.bin").exists()
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="sembolik bağ Windows'ta yönetici/geliştirici kipi ister")
 def test_symlinked_folder_outside_project_is_untouched(tmp_path):
     project = tmp_path / "Proje"
     project.mkdir()

@@ -407,6 +407,8 @@ def test_update_check_without_repo_never_touches_network(monkeypatch):
     from kadraj import updates
     import urllib.request
     monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: (_ for _ in ()).throw(AssertionError("ağ!")))
-    assert updates.check_for_update() is None
+    assert updates.check_for_update("") is None                      # boş depo: ağa hiç çıkılmaz
     assert updates.is_newer("0.2.0", "0.1.9") and not updates.is_newer("0.1.0", "0.1.0")
     assert updates.parse_version("v1.2") == (1, 2, 0)
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: (_ for _ in ()).throw(OSError("ağ kapalı")))
+    assert updates.check_for_update() is None                        # depo var ama çevrimdışı: çökme yok

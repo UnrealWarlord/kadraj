@@ -1,0 +1,38 @@
+# KADRAJ Linux paketi için derleme ortamı.
+#
+# Neden AlmaLinux 9: glibc'si tam olarak 2.34'tür. PyInstaller paketi derlendiği makinenin
+# glibc'sinden *yenisi* olan sistemlerde çalışır; PySide6 6.12 tekerlekleri zaten manylinux_2_34
+# istediği için 2.34 hem alt sınır hem hedeftir → Ubuntu 22.04+, Debian 12+, Fedora 35+ çalıştırır.
+# python3.12-devel: PyInstaller paylaşımlı libpython ister (manylinux imajlarında yoktur).
+#
+# Bu imaj yalnızca derleme içindir; kaynak kod imaja girmez (build_linux.sh /src olarak salt-okunur bağlar).
+FROM almalinux:9
+
+ENV LANG=C.UTF-8 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+# python + PyInstaller'ın ihtiyaç duyduğu binutils + Qt'nin ihtiyaç duyduğu sistem kütüphaneleri.
+# Qt kütüphanelerini PyInstaller, derleme makinesinde bulduklarından pakete koyar; bu yüzden
+# xcb-util-* (özellikle xcb-util-cursor) burada kurulu olmalı ki kullanıcının ayrıca kurması gerekmesin.
+RUN dnf -y install \
+        python3.12 python3.12-devel python3.12-pip binutils \
+        mesa-libGL mesa-libEGL libxkbcommon libxkbcommon-x11 fontconfig dbus-libs glib2 libX11-xcb \
+        xcb-util-image xcb-util-keysyms xcb-util-renderutil xcb-util-wm xcb-util-cursor \
+    && dnf clean all \
+    && rm -rf /var/cache/dnf
+
+# Sürüm sabitleri: derleme tekrarlanabilir olsun.
+ARG PYINSTALLER_VERSION=6.22.3
+ARG PYINSTALLER_HOOKS_VERSION=2026.10
+
+ENV PIP_ROOT_USER_ACTION=ignore
+
+# Çalışma zamanı bağımlılıkları: requirements.txt'den test paketleri (pytest, pytest-qt) çıkarılır.
+# Bağlam yalnızca requirements.txt içerir (build_linux.sh geçici bir bağlam klasörü hazırlar).
+COPY requirements.txt /tmp/requirements.txt
+RUN grep -viE '^[[:space:]]*(pytest|pytest-qt)([<>=~!;[:space:]].*)?$' /tmp/requirements.txt > /tmp/requirements-runtime.txt \
+    && python3.12 -m pip install -r /tmp/requirements-runtime.txt \
+    && python3.12 -m pip install "pyinstaller==${PYINSTALLER_VERSION}" "pyinstaller-hooks-contrib==${PYINSTALLER_HOOKS_VERSION}" \
+    && rm -f /tmp/requirements.txt /tmp/requirements-runtime.txt

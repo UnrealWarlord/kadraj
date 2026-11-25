@@ -11,8 +11,9 @@ from typing import Optional, Tuple
 
 from .version import __version__
 
-#: Depo yayınlandığında doldurulur; boşsa denetim hiçbir şey yapmaz.
-GITHUB_REPO = ""
+#: GitHub deposu (sahip/ad). Denetim yalnızca kullanıcı "Güncellemeleri denetle" dediğinde bu depoya sorar;
+#: açılışta ağ çağrısı yapılmaz. Boşsa denetim hiçbir şey yapmaz.
+GITHUB_REPO = "UnrealWarlord/kadraj"
 API_URL = "https://api.github.com/repos/{repo}/releases/latest"
 
 

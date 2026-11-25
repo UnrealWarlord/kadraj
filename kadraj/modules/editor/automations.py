@@ -11,6 +11,7 @@ import importlib
 import os
 import re
 import subprocess
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
@@ -592,10 +593,14 @@ def recording_command(kind: str, out: str, *, fps: int = 30, size: str = "1920x1
     env = env if env is not None else dict(os.environ)
     if source is None:
         if kind == "webcam":
+            if sys.platform == "win32":
+                raise smart("no_source")                       # DirectShow aygıt adı gerekir; henüz desteklenmiyor
             dev = next((str(p) for p in sorted(Path("/dev").glob("video*"))), None)
             if dev is None:
                 raise smart("no_source")
             source = ["-f", "v4l2", "-framerate", str(fps), "-i", dev]
+        elif sys.platform == "win32":
+            source = ["-f", "gdigrab", "-framerate", str(fps), "-i", "desktop"]      # tüm masaüstü; -video_size gerekmez
         else:
             display = env.get("DISPLAY")
             if not display:
