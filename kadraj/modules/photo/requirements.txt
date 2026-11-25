@@ -1,0 +1,4 @@
+# Fotoğraf Üret — modüle özgü bağımlılıklar (koordinatör kök requirements*.txt ile birleştirir)
+# Çekirdekte zaten var: httpx, Pillow, numpy, PySide6. Yeni zorunlu paket YOK.
+# Sağlayıcılar (hepsi isteğe bağlı; anahtar/servis yoksa Midjourney "istemi kopyala" yolu açık kalır): Ayarlar'dan anahtar ekle ya da yerel ComfyUI/Ollama'yı başlat.
+# ComfyUI iş akışları için modeller ComfyUI tarafında kurulu olmalı (SDXL denetim noktası, RealESRGAN_x4plus.pth).

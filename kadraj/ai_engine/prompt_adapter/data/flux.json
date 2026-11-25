@@ -1,0 +1,15 @@
+{
+  "model": "flux",
+  "label": "FLUX",
+  "negatives": ["blur", "watermark", "text"],
+  "styles": {
+    "sinematik": {"fragment": "cinematic film still with dramatic composition, anamorphic lens flare and color grading"},
+    "belgesel": {"fragment": "a documentary photograph of a natural candid moment, handheld, honest natural light"},
+    "yagli_boya": {"fragment": "an oil painting with visible brush strokes and a rich textured canvas"},
+    "cizgi_film": {"fragment": "a cartoon illustration with bold outlines and flat colors"},
+    "urun_cekimi": {"fragment": "a studio product photograph on a seamless backdrop with soft box lighting and sharp focus"},
+    "retro_film": {"fragment": "a vintage film photograph with faded colors, light leaks and visible film grain"},
+    "pastel": {"fragment": "a soft pastel palette with gentle light and a dreamy airy atmosphere"},
+    "gercekci": {"fragment": "a photorealistic image with true-to-life detail and natural colors"}
+  }
+}

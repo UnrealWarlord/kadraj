@@ -1,0 +1,16 @@
+{
+  "model": "dalle",
+  "label": "DALL-E",
+  "negatives": [],
+  "note": "DALL-E ayrı negatif alanı desteklemez; istenmeyenler params.dropped_negatives içinde raporlanır.",
+  "styles": {
+    "sinematik": {"fragment": "a cinematic film still with a dramatic composition and color grading"},
+    "belgesel": {"fragment": "a documentary photograph of a natural, candid moment in honest light"},
+    "yagli_boya": {"fragment": "an oil painting with visible brush strokes on a textured canvas"},
+    "cizgi_film": {"fragment": "a cartoon illustration with bold outlines and flat colors"},
+    "urun_cekimi": {"fragment": "a studio product photograph on a seamless backdrop with soft lighting"},
+    "retro_film": {"fragment": "a vintage film photograph with faded colors and visible film grain"},
+    "pastel": {"fragment": "a scene in a soft pastel palette with a dreamy, airy atmosphere"},
+    "gercekci": {"fragment": "a photorealistic image with true-to-life detail and natural colors"}
+  }
+}

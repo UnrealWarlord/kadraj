@@ -1,0 +1,9 @@
+# KADRAJ isteğe bağlı / ağır bağımlılıklar. Uygulama bunlar olmadan da açılır;
+# ilgili özellik "kurulu değil" kartıyla kapalı görünür. Python 3.14'te bazılarının
+# tekerleği olmayabilir (Docker/3.12 ile sınanır).
+faster-whisper>=1.0
+librosa>=0.10
+opencv-python-headless>=4.9
+rembg>=2.0
+nvidia-ml-py>=12.535
+pedalboard>=0.9

@@ -1,0 +1,4 @@
+# Ses Kayıt Stüdyosu — modüle özgü bağımlılıklar (koordinatör kök requirements*.txt ile birleştirir)
+# Çekirdekte zaten var: numpy, sounddevice, soundfile, PySide6.
+# İsteğe bağlı (yazıya çevirme .srt): kök requirements-ai.txt içindeki  faster-whisper>=1.0
+# Sistem: ffmpeg (stüdyo mastering için; kayıt FFmpeg gerektirmez), PortAudio (libportaudio2).

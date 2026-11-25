@@ -1,0 +1,15 @@
+{
+  "model": "midjourney",
+  "label": "Midjourney",
+  "negatives": ["blurry", "watermark", "text", "low quality"],
+  "styles": {
+    "sinematik": {"fragment": "cinematic film still, anamorphic, shallow depth of field", "params": {"s": 250}},
+    "belgesel": {"fragment": "documentary photograph, candid, natural light", "params": {"s": 50}},
+    "yagli_boya": {"fragment": "oil painting, visible brush strokes, textured canvas", "params": {"s": 400}},
+    "cizgi_film": {"fragment": "cartoon illustration, bold outlines, flat colors", "params": {"s": 200}},
+    "urun_cekimi": {"fragment": "studio product photography, seamless backdrop, softbox", "params": {"s": 100}},
+    "retro_film": {"fragment": "vintage film photograph, faded colors, film grain", "params": {"s": 150}},
+    "pastel": {"fragment": "soft pastel palette, gentle light, dreamy", "params": {"s": 300}},
+    "gercekci": {"fragment": "photorealistic, true-to-life detail, natural colors", "params": {"s": 50}}
+  }
+}

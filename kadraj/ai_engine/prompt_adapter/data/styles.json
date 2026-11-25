@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "note": "Ortak stil kütüphanesi. Her modelin kendi parçaları <model>.json dosyalarındadır.",
+  "styles": {
+    "sinematik": {"name": "Sinematik", "en": "cinematic film still, dramatic composition, anamorphic lens flare, color graded"},
+    "belgesel": {"name": "Belgesel", "en": "documentary photograph, natural candid moment, handheld camera, honest natural light"},
+    "yagli_boya": {"name": "Yağlı Boya", "en": "oil painting with visible brush strokes and a rich textured canvas"},
+    "cizgi_film": {"name": "Çizgi Film", "en": "cartoon illustration with bold outlines and flat colors"},
+    "urun_cekimi": {"name": "Ürün Çekimi", "en": "studio product photograph on a seamless backdrop, soft box lighting, sharp focus"},
+    "retro_film": {"name": "Retro Film", "en": "vintage film photograph with faded colors, light leaks and visible film grain"},
+    "pastel": {"name": "Pastel", "en": "soft pastel palette with gentle light and a dreamy airy atmosphere"},
+    "gercekci": {"name": "Gerçekçi", "en": "photorealistic image with true-to-life detail and natural colors"}
+  }
+}

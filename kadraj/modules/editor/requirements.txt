@@ -1,0 +1,8 @@
+# Video Düzenleme (NLE) — modüle özgü bağımlılıklar (koordinatör kök requirements*.txt ile birleştirir)
+# Çekirdekte zaten var: numpy, PySide6 (QtMultimedia dahil), Pillow (yalnızca isteğe bağlı yeşil perde için kare dönüşümü).
+# Sistem (zorunlu): ffmpeg + ffprobe  (NVENC/VAAPI kodlayıcılar varsa otomatik kullanılır; yoksa CPU).
+# İsteğe bağlı — yoksa ilgili sihirli dokunuş "İsteğe bağlı paketi kur" eylemli bir hata kartı gösterir (çökme yok):
+#   librosa                      → "Ritme göre kes"            (kök requirements-ai.txt'e eklenebilir)
+#   opencv-python-headless       → "Otomatik dikey kadraj"
+#   rembg onnxruntime            → "Yapay zekâ ile arka planı sil"
+#   faster-whisper               → "Dinamik altyazı" / "Metinle kurgu" (Adım 6'daki yerel yazıya çevirme)

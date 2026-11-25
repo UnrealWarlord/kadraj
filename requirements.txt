@@ -1,0 +1,16 @@
+# KADRAJ çekirdek bağımlılıkları (plan §7). Ağır/isteğe bağlı paketler requirements-ai.txt içinde.
+# Modüllerin kendi ek bağımlılıkları kadraj/modules/<ad>/requirements.txt dosyasındadır;
+# koordinatör birleştirir.
+PySide6>=6.6
+numpy>=1.26
+Pillow>=10.0
+cryptography>=42.0
+keyring>=24.0
+psutil>=5.9
+sounddevice>=0.4.6
+soundfile>=0.12
+yt-dlp>=2024.8.6
+httpx>=0.27
+reportlab>=4.0
+pytest>=8.0
+pytest-qt>=4.4

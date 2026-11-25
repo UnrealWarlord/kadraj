@@ -1,0 +1,4 @@
+# Dizi/Film Yap — modüle özgü bağımlılıklar (koordinatör kök requirements*.txt ile birleştirir)
+# Çekirdekte zaten var: httpx, Pillow, numpy, reportlab (.pdf), PySide6. Yeni zorunlu paket YOK.
+# Sistem: ffmpeg (son kare çıkarma + montaj). Video sağlayıcısı Ayarlar'dan yapılandırılır (providers.video.base_url / submit_path / status_path).
+# Ses: ElevenLabs anahtarı (karakter başına TTS + AI foley). Yoksa üretim sessiz sürer (dondurmaz) ve uyarı verir.

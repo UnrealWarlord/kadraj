@@ -1,0 +1,15 @@
+{
+  "model": "sdxl",
+  "label": "SDXL (ComfyUI)",
+  "negatives": ["low quality", "blurry", "jpeg artifacts", "watermark", "text"],
+  "styles": {
+    "sinematik": {"fragment": "cinematic, film still, dramatic lighting, anamorphic, film grain", "params": {"cfg": 6.5}},
+    "belgesel": {"fragment": "documentary photo, candid, natural light, realistic", "params": {"cfg": 6.0}},
+    "yagli_boya": {"fragment": "oil painting, visible brush strokes, textured canvas", "params": {"cfg": 8.0}},
+    "cizgi_film": {"fragment": "cartoon, bold outlines, flat colors, cel shading", "params": {"cfg": 8.0}},
+    "urun_cekimi": {"fragment": "product photography, studio, seamless backdrop, softbox, sharp focus", "params": {"cfg": 7.0}},
+    "retro_film": {"fragment": "vintage film photo, faded colors, light leaks, film grain", "params": {"cfg": 7.0}},
+    "pastel": {"fragment": "pastel colors, soft light, dreamy, airy", "params": {"cfg": 6.5}},
+    "gercekci": {"fragment": "photorealistic, detailed, natural colors, 8k photo", "params": {"cfg": 7.0}}
+  }
+}

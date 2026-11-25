@@ -1,0 +1,2 @@
+# Ayarlar modülünün ek bağımlılığı yok: sağlayıcı pingleri ve yerel algılama çekirdekteki
+# httpx ile, araç güncellemesi aynı Python'ın pip'i ile yapılır. (Çekirdek: PySide6, httpx.)

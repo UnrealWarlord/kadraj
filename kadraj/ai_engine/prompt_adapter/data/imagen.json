@@ -1,0 +1,15 @@
+{
+  "model": "imagen",
+  "label": "Google Imagen",
+  "negatives": ["blurry", "watermark", "text", "distorted hands"],
+  "styles": {
+    "sinematik": {"fragment": "cinematic film still, dramatic composition, anamorphic lens flare, color graded"},
+    "belgesel": {"fragment": "documentary photograph, natural candid moment, honest natural light"},
+    "yagli_boya": {"fragment": "oil painting, visible brush strokes, rich textured canvas"},
+    "cizgi_film": {"fragment": "cartoon illustration, bold outlines, flat colors"},
+    "urun_cekimi": {"fragment": "studio product photography, seamless backdrop, soft box lighting, sharp focus"},
+    "retro_film": {"fragment": "vintage film photograph, faded colors, light leaks, film grain"},
+    "pastel": {"fragment": "soft pastel palette, gentle light, dreamy airy atmosphere"},
+    "gercekci": {"fragment": "photorealistic, true-to-life detail, natural colors"}
+  }
+}
