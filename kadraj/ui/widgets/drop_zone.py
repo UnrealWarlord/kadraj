@@ -5,6 +5,7 @@ Kesikli çerçeveli yuvarlak alan; üzerine dosya getirince vurgulanır. Bırak�
 """
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import QRectF, Qt, Signal
@@ -60,7 +61,8 @@ class DropZone(ThemedMixin, QWidget):
     def dropEvent(self, e) -> None:
         self._over = False
         self.update()
-        paths = [u.toLocalFile() for u in e.mimeData().urls() if u.isLocalFile()]
+        # Qt her yerde "/" verir (Windows'ta "C:/Users/a.mp4"); uygulamanın geri kalanı yerel ayraçlı yol bekler.
+        paths = [str(Path(u.toLocalFile())) for u in e.mimeData().urls() if u.isLocalFile()]
         if paths:
             self.filesDropped.emit(paths)
             e.acceptProposedAction()

@@ -29,8 +29,8 @@ Hangi dosyayı indireceğinizi aşağıdaki tablodan seçin. Dosyalar için [en 
 
 | Sistem | İndirilecek dosya |
 |---|---|
-| Linux (x86_64) | `KADRAJ-0.1.0-linux-x86_64.tar.gz` (yanındaki `.sha256` ile doğrulayabilirsiniz) |
-| Windows 10/11 (64 bit) | `KADRAJ-0.1.0-windows-x64-setup.exe` |
+| Linux (x86_64) | `KADRAJ-<sürüm>-linux-x86_64.tar.gz` (örneğin `KADRAJ-1.0.3-linux-x86_64.tar.gz`; yanındaki `.sha256` ile doğrulayabilirsiniz) |
+| Windows 10/11 (64 bit) | `KADRAJ-<sürüm>-windows-x64-setup.exe` (örneğin `KADRAJ-1.0.3-windows-x64-setup.exe`) |
 | — | Sürüm sayfasındaki "Source code (zip / tar.gz)" bağlantıları GitHub'ın her sürüme otomatik eklediği ham kaynak koddur; kurulum için gerekmez. |
 
 ### Linux
@@ -38,8 +38,8 @@ Hangi dosyayı indireceğinizi aşağıdaki tablodan seçin. Dosyalar için [en 
 1. Arşivi açın ve klasöre girin:
 
    ```bash
-   tar -xzf KADRAJ-0.1.0-linux-x86_64.tar.gz
-   cd KADRAJ-0.1.0-linux-x86_64
+   tar -xzf KADRAJ-*-linux-x86_64.tar.gz
+   cd KADRAJ-*-linux-x86_64
    ```
 
 2. Kurun:
@@ -54,7 +54,7 @@ Kaldırmak için paket klasöründe `./uninstall.sh` çalıştırın. Verilerini
 
 ### Windows
 
-1. `KADRAJ-0.1.0-windows-x64-setup.exe` dosyasına çift tıklayın. Yönetici izni gerekmez; uygulama kullanıcı klasörüne kurulur.
+1. `KADRAJ-<sürüm>-windows-x64-setup.exe` dosyasına çift tıklayın. Yönetici izni gerekmez; uygulama kullanıcı klasörüne kurulur.
 2. Windows "Bilgisayarınız korundu" (SmartScreen) uyarısı verirse "Ek bilgi" → "Yine de çalıştır" seçin. Bu uyarı, dosyanın dijital olarak imzalanmamış olmasından kaynaklanır.
 3. KADRAJ'ı Başlat menüsünden açın.
 4. Kaldırmak için Ayarlar → Uygulamalar → KADRAJ → Kaldır. Verileriniz (`%USERPROFILE%\.kadraj`) korunur.
@@ -65,7 +65,7 @@ Render ve dışa aktarma için FFmpeg gerekir. PowerShell'de:
 winget install Gyan.FFmpeg
 ```
 
-Sürüm 0.1.0'ın bilinen sınırları için [sürüm notlarına](docs/release-notes/v0.1.0.md) bakın.
+Her sürümün notları [Releases](https://github.com/UnrealWarlord/kadraj/releases) sayfasında ve `docs/release-notes/` içindedir.
 
 ## Sistem gereksinimleri
 

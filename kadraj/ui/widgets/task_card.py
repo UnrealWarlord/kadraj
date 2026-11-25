@@ -87,7 +87,8 @@ class TaskCard(ThemedMixin, QAbstractButton):
     def _on_theme(self) -> None:
         tk = self.tk
         self.setFixedHeight(tk.px(188) if not tk.is_legend else tk.px(56))
-        self.setMinimumWidth(tk.px(220) if not tk.is_legend else tk.px(180))
+        # Legend'de en uzun etiket ("Audio Capture") + kısayol sığsın diye 232 px (kırpma yalnız yedek).
+        self.setMinimumWidth(tk.px(220) if not tk.is_legend else tk.px(232))
 
     def sizeHint(self) -> QSize:
         return QSize(self.minimumWidth() + 40, self.height())
@@ -188,6 +189,30 @@ class TaskCard(ThemedMixin, QAbstractButton):
             p.drawText(r, Qt.AlignmentFlag.AlignCenter, label)
             x -= w + 8
 
+    LEGEND_TEXT_X = 44.0    # başlığın sol boşluğu (ikonun sağı)
+    LEGEND_PAD_R = 12.0     # kısayolun sağ boşluğu
+    LEGEND_GAP = 10.0       # başlık ile kısayol arasında en az boşluk
+
+    def _legend_text_edges(self, rect: QRectF) -> tuple[str, float, Optional[float]]:
+        """Legend satırında (gösterilecek başlık, başlığın sağ kenarı, kısayolun sol kenarı).
+        Başlık, kısayolun soluna en az ``LEGEND_GAP`` kalacak şekilde gerekirse kırpılır (…)."""
+        tk = self.tk
+        title_fm = QFontMetrics(fonts.qfont(tk.font_ui, tk.ui_px, weight=600))
+        x0 = rect.left() + self.LEGEND_TEXT_X
+        if not self._shortcut:
+            return self._title, x0 + title_fm.horizontalAdvance(self._title), None
+        mono_fm = QFontMetrics(fonts.qfont(tk.font_mono, tk.ui_px * 0.85, weight=500))
+        shortcut_left = rect.right() - self.LEGEND_PAD_R - mono_fm.horizontalAdvance(self._shortcut)
+        room = shortcut_left - self.LEGEND_GAP - x0
+        title = self._title
+        if title_fm.horizontalAdvance(title) > room:
+            title = title_fm.elidedText(title, Qt.TextElideMode.ElideRight, int(max(room, 0)))
+        return title, x0 + title_fm.horizontalAdvance(title), shortcut_left
+
+    def legend_label_edges(self) -> tuple[str, float, Optional[float]]:
+        """Ölçüm/test: çizimle aynı geometri (dikey kayma yatay kenarı etkilemez)."""
+        return self._legend_text_edges(QRectF(self.rect()).adjusted(3, 5, -3, -3))
+
     def _paint_legend(self, p: QPainter, rect: QRectF, acc) -> None:
         tk = self.tk
         path = QPainterPath()
@@ -199,15 +224,17 @@ class TaskCard(ThemedMixin, QAbstractButton):
         p.setBrush(QColor(acc.base))
         p.drawRect(QRectF(rect.left(), rect.top(), 3, rect.height()))
         draw_icon(p, QRectF(rect.left() + 14, rect.center().y() - 10, 20, 20), self._icon, acc.base, stroke=1.8)
+        title, _label_right, _shortcut_left = self._legend_text_edges(rect)
         p.setFont(fonts.qfont(tk.font_ui, tk.ui_px, weight=600))
         p.setPen(QColor(tk.text))
         fm = QFontMetrics(p.font())
-        p.drawText(QPointF(rect.left() + 44, rect.center().y() + (fm.ascent() - fm.descent()) / 2), self._title)
+        p.drawText(QPointF(rect.left() + self.LEGEND_TEXT_X, rect.center().y() + (fm.ascent() - fm.descent()) / 2),
+                   title)
         if self._shortcut:
             mf = fonts.qfont(tk.font_mono, tk.ui_px * 0.85, weight=500)
             p.setFont(mf)
             p.setPen(QColor(tk.text2))
-            p.drawText(QRectF(rect.left(), rect.top(), rect.width() - 12, rect.height()),
+            p.drawText(QRectF(rect.left(), rect.top(), rect.width() - self.LEGEND_PAD_R, rect.height()),
                        int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter), self._shortcut)
         if self.hasFocus():
             p.setBrush(Qt.BrushStyle.NoBrush)

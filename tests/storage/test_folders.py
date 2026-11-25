@@ -50,7 +50,8 @@ def test_ensure_is_idempotent_and_never_deletes(tmp_path):
 
 
 def test_ensure_root_creates_nested_and_expands_user(tmp_path, monkeypatch):
-    monkeypatch.setenv("HOME", str(tmp_path / "ev"))
+    monkeypatch.setenv("HOME", str(tmp_path / "ev"))             # Linux/macOS: expanduser HOME'a bakar
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "ev"))      # Windows: expanduser / Path.home() USERPROFILE'a bakar
     root = folders.ensure_root("~/Videos/Projeler")
     assert root == tmp_path / "ev" / "Videos" / "Projeler"
     assert root.is_dir()

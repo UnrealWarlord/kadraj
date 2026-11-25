@@ -6,6 +6,8 @@
 #   2) Release yayımlanınca → paketler o release'e otomatik EKLENİR (varsa üzerine yazar).
 #                     Not: iş akışı, etiketin gösterdiği commit'teki .github/workflows/release.yml ile çalışır;
 #                     bu dosya depoda olduktan SONRA etiket/release oluşturun.
+#                     Etiket tam olarak "v" + kadraj/version.py sürümü olmalı (örn. sürüm 1.0.3 → v1.0.3);
+#                     değilse linux ve windows işleri derlemeden önce hata verip durur. Elle denemede kontrol yok.
 #
 # Dosya adları (README'de yazılı, değiştirmeyin):
 #   KADRAJ-<sürüm>-linux-x86_64.tar.gz       (+ .sha256)
@@ -31,17 +33,24 @@ jobs:
       contents: write          # release'e dosya eklemek için
     steps:
       - name: Kodu indir
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
-      - name: Etiket ile sürüm tutarlı mı?
+      # Kapı: release etiketi tam olarak "v" + kadraj/version.py sürümü olmalı; değilse derlemeden ÖNCE düşer.
+      - name: Etiket ile sürüm tutarlı mı? (kapı)
         if: github.event_name == 'release'
         env:
           TAG: ${{ github.event.release.tag_name }}
         run: |
           VERSION="$(sed -n 's/^__version__ *= *"\([^"]*\)".*/\1/p' kadraj/version.py | head -n1)"
-          if [ "${TAG#v}" != "$VERSION" ]; then
-            echo "::warning title=Sürüm uyuşmuyor::Etiket '$TAG' ama kadraj/version.py sürümü '$VERSION'. Dosya adları $VERSION ile üretilir."
+          if [ -z "$VERSION" ]; then
+            echo "::error title=Sürüm okunamadı::kadraj/version.py içinde __version__ bulunamadı."
+            exit 1
           fi
+          if [ "$TAG" != "v$VERSION" ]; then
+            echo "::error title=Sürüm uyuşmuyor::Etiket '$TAG' ama kadraj/version.py sürümü '$VERSION' (beklenen etiket: 'v$VERSION'). Ne yapmalı: kadraj/version.py içindeki sürümü yükseltin, push edin, sonra release'i 'v<sürüm>' etiketiyle oluşturun (yanlış etiketli release'i ve etiketini silin)."
+            exit 1
+          fi
+          echo "Etiket $TAG = v$VERSION ✓"
 
       # Docker (AlmaLinux 9, glibc 2.34) içinde PyInstaller + paketlenmiş uygulamanın --selftest'i.
       # Selftest "SELFTEST TAMAM" vermezse bu adım başarısız olur (kapı).
@@ -49,7 +58,7 @@ jobs:
         run: bash packaging/build_linux.sh
 
       - name: Paketleri sakla (Artifacts)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: KADRAJ-linux-x86_64
           path: |
@@ -82,10 +91,27 @@ jobs:
         shell: pwsh
     steps:
       - name: Kodu indir
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+
+      # Kapı: release etiketi tam olarak "v" + kadraj/version.py sürümü olmalı; değilse derlemeden ÖNCE düşer.
+      - name: Etiket ile sürüm tutarlı mı? (kapı)
+        if: github.event_name == 'release'
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          $ver = [regex]::Match((Get-Content kadraj/version.py -Raw), '__version__\s*=\s*"([^"]+)"').Groups[1].Value
+          if (-not $ver) {
+            Write-Host "::error title=Sürüm okunamadı::kadraj/version.py içinde __version__ bulunamadı."
+            exit 1
+          }
+          if ($env:TAG -cne "v$ver") {
+            Write-Host "::error title=Sürüm uyuşmuyor::Etiket '$($env:TAG)' ama kadraj/version.py sürümü '$ver' (beklenen etiket: 'v$ver'). Ne yapmalı: kadraj/version.py içindeki sürümü yükseltin, push edin, sonra release'i 'v<sürüm>' etiketiyle oluşturun (yanlış etiketli release'i ve etiketini silin)."
+            exit 1
+          }
+          Write-Host "Etiket $($env:TAG) = v$ver ✓"
 
       - name: Python 3.12 kur
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -93,9 +119,6 @@ jobs:
 
       - name: Sürümü ve PyInstaller sabitlerini oku
         id: meta
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          TAG: ${{ github.event.release.tag_name }}
         run: |
           # Sürüm: kadraj/version.py. PyInstaller sürümü: Linux derlemesiyle AYNI olsun diye packaging/Dockerfile.linux'tan.
           $ver   = [regex]::Match((Get-Content kadraj/version.py -Raw), '__version__\s*=\s*"([^"]+)"').Groups[1].Value
@@ -107,9 +130,6 @@ jobs:
           "pyinstaller=$pyi"    >> $env:GITHUB_OUTPUT
           "hooks=$hooks"        >> $env:GITHUB_OUTPUT
           Write-Host "KADRAJ $ver · PyInstaller $pyi · hooks-contrib $hooks"
-          if ($env:EVENT_NAME -eq 'release' -and $env:TAG.TrimStart('v') -ne $ver) {
-            Write-Host "::warning title=Sürüm uyuşmuyor::Etiket '$($env:TAG)' ama kadraj/version.py sürümü '$ver'. Dosya adları $ver ile üretilir."
-          }
 
       - name: Bağımlılıkları kur (pytest hariç) + PyInstaller
         run: |
@@ -198,7 +218,7 @@ jobs:
           Write-Host "Kurulum → selftest → kaldırma tamam; $keep korundu."
 
       - name: Paketleri sakla (Artifacts)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: KADRAJ-windows-x64
           path: |
@@ -210,7 +230,7 @@ jobs:
 
       - name: Selftest günlüklerini sakla
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-selftest-gunlukleri
           path: ${{ runner.temp }}/selftest*.log
@@ -243,10 +263,10 @@ jobs:
         shell: pwsh
     steps:
       - name: Kodu indir
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Python 3.12 kur
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip

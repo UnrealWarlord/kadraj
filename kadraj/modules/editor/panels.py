@@ -442,7 +442,7 @@ class LibraryPanel(QWidget):
     def dropEvent(self, e: QDropEvent) -> None:
         for u in e.mimeData().urls():
             if u.isLocalFile():
-                self.svc.add_media(u.toLocalFile())
+                self.svc.add_media(str(Path(u.toLocalFile())))      # Windows'ta "C:/x" → "C:\x"
         e.acceptProposedAction()
 
 
