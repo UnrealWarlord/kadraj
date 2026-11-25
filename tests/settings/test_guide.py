@@ -36,7 +36,7 @@ def test_host_is_the_provider_site_and_copy_works(qtbot):
     view = _view(qtbot)
     assert view.provider_id() == "anthropic"
     view.copy.click()
-    assert QApplication.clipboard().text() == "console.anthropic.com"
+    assert QApplication.clipboard().text() == "platform.claude.com"
 
 
 def test_canvas_paints_every_step(qtbot):

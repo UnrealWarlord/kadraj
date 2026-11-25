@@ -47,6 +47,7 @@ class SeriesLegendPage(SeriesPageBase):
         root.setContentsMargins(8, 8, 8, 8)
         root.setSpacing(6)
         root.addWidget(self._topbar())
+        root.addWidget(self.ai_panel)
         root.addLayout(self.error_slot)
         split = QSplitter(Qt.Orientation.Vertical)
         root.addWidget(split, 1)

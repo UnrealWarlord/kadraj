@@ -13,14 +13,9 @@ KADRAJ — Linux kurulumu
    Sonra uygulama menüsünden "KADRAJ"ı açın ya da terminalde  kadraj  yazın.
    Kurulum yapmadan denemek isterseniz bu klasörde  ./KADRAJ  çalıştırmak yeterlidir.
 
-3) Gerekli sistem paketleri (yoksa kurulum sonunda uyarır):
-
-   Ubuntu / Debian:   sudo apt install ffmpeg libportaudio2
-   Fedora:            sudo dnf install portaudio ffmpeg-free
-                      (tam FFmpeg için RPM Fusion:  sudo dnf install ffmpeg)
-   Arch / CachyOS:    sudo pacman -S ffmpeg portaudio
-
-   ffmpeg → video düzenleme ve dışa aktarma.  portaudio → ses kaydı.
+3) Başka bir şey kurmanız gerekmez: FFmpeg, ffprobe, Deno, PortAudio ve yt-dlp pakete dahildir.
+   KADRAJ açılışta bunları resmî kaynaklarından kendiliğinden günceller (Ayarlar → Araçlar'dan kapatılabilir).
+   Lisans bilgileri: THIRD_PARTY_NOTICES.md
 
 Gereksinim: 64-bit Linux, glibc 2.34 veya yeni (Ubuntu 22.04+, Debian 12+, Fedora 35+, Arch).
 

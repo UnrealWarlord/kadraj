@@ -19,6 +19,7 @@ from ...ui.theme.manager import ThemedMixin
 from ...ui.widgets import SmartErrorCard, SquishyButton
 from ...ui.widgets.surface import page_surface_qss
 from .range_bar import RangeBar
+from .rows import RecentDownloadRow, failed_rows, first_available_quality, quality_top, unavailable_text
 from .service import (MODE_AUDIO, MODE_AV, MODE_VIDEO, MODES, QUALITIES, QUALITY_HEIGHT, Options,
                       VideoInfo, command_preview, format_timecode, parse_timecode)
 from .strings import K
@@ -189,6 +190,8 @@ class DownloaderLegendPage(ThemedMixin, QWidget):
         self.queue.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.queue.setMinimumHeight(120)
         lay.addWidget(self.queue)
+        self.failures = QVBoxLayout()                  # başarısız işlerin nedeni ve adımları (kuyruğun altında)
+        lay.addLayout(self.failures)
 
     def _wire(self) -> None:
         s = self.service
@@ -237,6 +240,9 @@ class DownloaderLegendPage(ThemedMixin, QWidget):
                 self.formats.setItem(r, c, QTableWidgetItem(text))
         self.range.set_duration(info.duration)
         self.range.set_values(0.0, info.duration)
+        best = first_available_quality(info, self.service.draft.quality)
+        if best != self.service.draft.quality:              # seçili kalite bu videoda yoksa en yükseği seç
+            self.service.set_quality(best)
         self._sync_view()
 
     def _on_probe_failed(self, error) -> None:
@@ -287,6 +293,7 @@ class DownloaderLegendPage(ThemedMixin, QWidget):
     # -- görünüm -----------------------------------------------------------
     def _sync_view(self, *_args) -> None:
         d = self.service.draft
+        self._refresh_quality_items()
         for w in (self.mode, self.quality, self.partial):
             w.blockSignals(True)
         try:
@@ -305,6 +312,17 @@ class DownloaderLegendPage(ThemedMixin, QWidget):
             self.command.setText(command_preview(request))
         except ValueError as exc:
             self.command.setText(str(exc))
+
+    def _refresh_quality_items(self) -> None:
+        """Kalite listesi: bu videoda olmayan kalite pasif ve "Bu videoda yok (en yüksek: …)" ile işaretlenir."""
+        model = self.quality.model()
+        for i, q in enumerate(QUALITIES):
+            top = quality_top(self._info, q)
+            base = f"{_QUALITY_LABEL[q]} ({QUALITY_HEIGHT[q]})"
+            self.quality.setItemText(i, base if top is None else f"{base} — {unavailable_text(top)}")
+            item = model.item(i) if hasattr(model, "item") else None
+            if item is not None:
+                item.setEnabled(top is None)
 
     def _download(self) -> None:
         info = self._info
@@ -340,3 +358,6 @@ class DownloaderLegendPage(ThemedMixin, QWidget):
                 self.queue.setCellWidget(r, 3, btn)
             else:
                 self.queue.setCellWidget(r, 3, None)
+        _clear(self.failures)
+        for row in failed_rows(rows):
+            self.failures.addWidget(RecentDownloadRow(self.ctx, row))

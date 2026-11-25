@@ -69,29 +69,20 @@ Her sürümün notları [Releases](https://github.com/UnrealWarlord/kadraj/relea
 
 ## Sistem gereksinimleri
 
+Kurulum paketi her şeyi kendi içinde getirir; **sisteminize ayrıca bir şey kurmanız gerekmez** (FFmpeg, ffprobe, Deno,
+yt-dlp, PortAudio ve libxcb-cursor pakete dahildir). Açılışta yt-dlp, FFmpeg ve Deno resmî kaynaklarından denetlenir ve
+güncellenir (Ayarlar → Araçlar'dan kapatılabilir; ağ yoksa sessizce atlanır). Lisanslar: `THIRD_PARTY_NOTICES.md`.
+
 ### Linux
 
 - İşlemci mimarisi: x86_64
 - glibc 2.34 veya üstü (Ubuntu 22.04+, Debian 12+, Fedora 35+, Arch / CachyOS)
-- `ffmpeg`: video dışa aktarma
-- `libportaudio2`: mikrofon kaydı
-- `libxcb-cursor0`: X11 oturumunda Qt penceresi için (Wayland'da gerekmez)
-
-```bash
-# Debian / Ubuntu
-sudo apt install ffmpeg libportaudio2 libxcb-cursor0
-# Fedora (tam codec desteği için RPM Fusion'daki ffmpeg)
-sudo dnf install ffmpeg-free portaudio xcb-util-cursor
-# Arch / CachyOS
-sudo pacman -S ffmpeg portaudio xcb-util-cursor
-```
 
 Paket Ubuntu 22.04 ve CachyOS üzerinde sınandı.
 
 ### Windows
 
 - Windows 10 veya 11, 64 bit
-- FFmpeg: `winget install Gyan.FFmpeg`
 
 ## Kaynaktan çalıştırma
 
@@ -115,9 +106,9 @@ Kararlar ve adım raporları: `docs/DECISIONS.md`, `docs/steps/`.
 
 ## Gizlilik
 
-- Uygulama çevrimdışı çalışır. Ağa yalnızca bir özelliği kullandığınızda çıkar: video indirme veya bulut yapay zekâ sağlayıcısı. Bulut sağlayıcı kullanırsanız istem ve içerik o sağlayıcıya gönderilir.
+- Uygulama çevrimdışı çalışır. Ağa şu durumlarda çıkar: video indirme, bulut yapay zekâ sağlayıcısı ve açılıştaki bileşen güncellemesi (yt-dlp, FFmpeg, Deno; yalnızca resmî GitHub sürümleri, HTTPS, SHA-256 doğrulamalı; Ayarlar → Araçlar'dan kapatılabilir). Bulut sağlayıcı kullanırsanız istem ve içerik o sağlayıcıya gönderilir.
 - API anahtarları şifreli bir kasada (`~/.kadraj/vault.bin`; Windows'ta `%USERPROFILE%\.kadraj\vault.bin`) tutulur. Şifreleme anahtarı işletim sisteminin anahtar deposunda (keyring) saklanır; keyring yoksa parolanızdan türetilir. Anahtarlar ekranda yalnızca maskeli görünür.
-- Güncelleme denetimi yalnızca siz "Güncellemeleri denetle" dediğinizde yapılır. Açılışta ağa çıkılmaz.
+- Uygulamanın kendisi için güncelleme denetimi yalnızca siz "Güncellemeleri denetle" dediğinizde yapılır. Açılışta yalnızca yukarıdaki yardımcı bileşenler (yt-dlp, FFmpeg, Deno) denetlenir; kapatmak için Ayarlar → Araçlar → "Açılışta bileşenleri güncelle".
 
 ## Lisans
 

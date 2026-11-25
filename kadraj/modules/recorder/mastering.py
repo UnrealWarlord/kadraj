@@ -99,7 +99,8 @@ def build_filter(s: MasterSettings, measured: Optional[Dict[str, Any]] = None, f
 
 
 def find_ffmpeg() -> Optional[str]:
-    return shutil.which("ffmpeg")
+    from ...core import components      # tembel: ağır bağımlılık yok, yalnızca dosya araması
+    return components.ffmpeg_path()
 
 
 _JSON = re.compile(r"\{[^{}]*\"input_i\"[^{}]*\}", re.S)

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# KADRAJ kaldırma betiği — install.sh'ın yazdığı üç şeyi siler; kullanıcı verisine (~/.kadraj) dokunmaz.
+# KADRAJ kaldırma betiği — install.sh'ın yazdığı şeyleri (uygulama, komut, menü girdisi, simgeler) siler; kullanıcı verisine (~/.kadraj) dokunmaz.
 set -euo pipefail
 
 if [ -z "${HOME:-}" ] || [ "$HOME" = "/" ]; then
@@ -18,6 +18,8 @@ if [ -L "$LINK" ]; then
     esac
 fi
 rm -f "$DESKTOP"
+for icon in "$HOME"/.local/share/icons/hicolor/*/apps/kadraj.png; do [ -e "$icon" ] && rm -f "$icon"; done
+command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache -q -t "$HOME/.local/share/icons/hicolor" >/dev/null 2>&1 || true
 rm -rf "$APP_DIR"
 command -v update-desktop-database >/dev/null 2>&1 \
     && update-desktop-database "$HOME/.local/share/applications" >/dev/null 2>&1 || true

@@ -127,7 +127,11 @@ class World:
         if r.url.host == "cdn.bfl.ai":
             return httpx.Response(200, content=self.image)
         if r.url.host == "generativelanguage.googleapis.com":
-            return httpx.Response(200, json={"predictions": [{"bytesBase64Encoded": base64.b64encode(self.image).decode()}]})
+            if r.method == "GET":                                      # https://ai.google.dev/api/models (list)
+                return httpx.Response(200, json={"models": [{"name": "models/gemini-nano-banana-2.1"}]})
+            # https://ai.google.dev/gemini-api/docs/image-generation (REST "generateContent")
+            part = {"inlineData": {"mimeType": "image/png", "data": base64.b64encode(self.image).decode()}}
+            return httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": "tamam"}, part]}, "finishReason": "STOP"}]})
         if r.url.host == "api.openai.com":
             if r.url.path.endswith("/images/edits") or r.url.path.endswith("/images/generations"):
                 return httpx.Response(200, json={"data": [{"b64_json": base64.b64encode(self.image).decode()}]})
@@ -141,6 +145,8 @@ class World:
                 return httpx.Response(200, json={"C1": {"status": {"completed": True}, "outputs": {"9": {"images": [{"filename": "o.png"}]}}}})
             if r.url.path == "/view":
                 return httpx.Response(200, content=self.image)
+            if r.url.path == "/object_info/CheckpointLoaderSimple":
+                return httpx.Response(200, json={"CheckpointLoaderSimple": {"input": {"required": {"ckpt_name": [["sd_xl_base_1.0.safetensors"]]}}}})
             return httpx.Response(200, json={})
         if r.url.host == "vid.example":
             self.video_calls += 1
@@ -152,6 +158,8 @@ class World:
         if r.url.host == "api.elevenlabs.io":
             return httpx.Response(200, content=b"\x00\x01" * 4800)
         if r.url.host == "127.0.0.1" and r.url.port == 11434:
+            if r.url.path == "/api/tags":                              # https://docs.ollama.com/api/tags
+                return httpx.Response(200, json={"models": [{"name": "llama3.1:8b", "model": "llama3.1:8b"}, {"name": "llava:7b", "model": "llava:7b"}]})
             return httpx.Response(200, json={"message": {"content": "yerel"}})
         return httpx.Response(404, json={})
 

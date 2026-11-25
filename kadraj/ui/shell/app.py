@@ -10,12 +10,15 @@ import sys
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QApplication
 
+from ...core import updater
 from ...core.context import AppContext
 from ...core.contracts import UiMode
 from ...core.settings import SettingsStore, apply_wizard_answers
 from .. import fonts
+from ..app_icon import app_icon
 from ..scaling import configure_high_dpi, fit_window
 from ..theme.manager import ThemeManager
 from .dialogs import ensure_consent
@@ -33,6 +36,8 @@ def create_app(argv: Optional[List[str]] = None, *, settings: Optional[SettingsS
         app = QApplication(argv if argv is not None else sys.argv)
         app.setApplicationName("kadraj")
         app.setOrganizationName("insibag")
+        QGuiApplication.setDesktopFileName("kadraj")
+    app.setWindowIcon(app_icon())
     fonts.load_fonts()
     ctx = AppContext(settings=settings, discover=discover)
     theme = ThemeManager(ctx.settings)
@@ -46,8 +51,9 @@ class Launcher:
 
     def __init__(self, app: QApplication, ctx: AppContext, theme: ThemeManager, *, splash: bool = True,
                  splash_ms: Optional[int] = None, ask_consent: Optional[Callable[[], bool]] = None,
-                 wizard: bool = True) -> None:
+                 wizard: bool = True, updates: bool = False) -> None:
         self.app, self.ctx, self.theme = app, ctx, theme
+        self.updates = updates          # açılışta bileşen güncelleme; testlerde ve --selftest'te hep kapalı
         self.use_splash = splash and bool(ctx.settings.get("splash", True))
         self.splash_ms = splash_ms
         self.ask_consent = ask_consent
@@ -57,7 +63,7 @@ class Launcher:
 
     def start(self) -> None:
         if self.use_splash:
-            self._splash = SplashScreen(self.splash_ms)
+            self._splash = SplashScreen(self.splash_ms, updates=self.updates)
             self._splash.finished.connect(self._after_splash)
             self._splash.start()
         else:
@@ -105,7 +111,8 @@ def run(argv: Optional[List[str]] = None, *, splash: bool = True, mode: Optional
     if mode:
         ctx.set_ui_mode(UiMode.coerce(mode))
         theme.apply(ctx.ui_mode, animate=False)
-    launcher = Launcher(app, ctx, theme, splash=splash)
+    launcher = Launcher(app, ctx, theme, splash=splash,
+                        updates=splash and updater.auto_update_enabled(ctx.settings))
     launcher.start()
     code = app.exec()
     ctx.shutdown()

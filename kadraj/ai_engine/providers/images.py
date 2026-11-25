@@ -1,14 +1,20 @@
-"""Bulut görsel sağlayıcıları: FLUX (Black Forest Labs), Google Imagen, OpenAI görsel (DALL-E / gpt-image).
+"""Bulut görsel sağlayıcıları: FLUX (Black Forest Labs), Google Gemini görsel ("Nano Banana"), OpenAI görsel (gpt-image).
 
 Ortak yüz: ``generate(prompt, *, vault, aspect, seed, n, negative, width, height, model, timeout) -> ImageResult``.
+
+Resmî dokümanlara göre (2026-11): Google **Imagen kapatıldı** (``:predict`` artık yok) → Gemini görsel modelleri ``generateContent`` ile;
+OpenAI ``gpt-image-1`` (23 Eki 2026) ve ``dall-e-*`` (12 May 2026) kapatıldı → ``gpt-image-2.x``. Eski bir model kapanırsa
+``AIProvider.candidates/walk`` sıradaki adayı dener; kullanıcı Ayarlar'dan model seçtiyse yalnız o denenir.
 """
 from __future__ import annotations
 
 import base64
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+import math
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from ...core.contracts import ProviderKind
 from .. import pricing
+from ...core import i18n
 from .aicore import AIProvider, ImageResult, Usage, ai_err, b64
 
 
@@ -32,75 +38,145 @@ def size_for(aspect: str, long_side: int = 1024, multiple: int = 32, lo: int = 2
 
 
 class BflFluxProvider(AIProvider):
-    """FLUX: ``POST /v1/<model>`` → ``polling_url`` yoklanır → ``result.sample`` indirilir."""
+    """FLUX: ``POST /v1/<model>`` → ``polling_url`` yoklanır → ``result.sample`` (10 dk geçerli imzalı adres) indirilir.
+
+    Kaynak: https://docs.bfl.ml/quick_start/generating_images.md · https://docs.bfl.ml/api_integration/integration_guidelines.md
+    · https://docs.bfl.ml/api_integration/errors.md · https://docs.bfl.ml/api-reference/get-the-users-credits.md
+    """
     MODEL = "flux-pro-1.1"
+    MODELS = ("flux-pro-1.1", "flux-2-pro")
+    PENDING = ("Pending", "Reasoning", "Generating", "Queued", "Processing")
+    MODERATED = ("Request Moderated", "Content Moderated")
+    FAILED = ("Error", "Failed", "Task not found", "No Card Generated")
 
     def __init__(self, *, settings: Any = None, transport: Any = None, **kw: Any) -> None:
         super().__init__("bfl_flux", "FLUX (Black Forest Labs)", ProviderKind.IMAGE, base_url="https://api.bfl.ai",
                          ping_path="/v1/credits", auth="header:x-key", settings=settings, transport=transport, **kw)
 
+    def ping_message(self, resp: Any, ms: float) -> str:
+        try:
+            credits = resp.json().get("credits")
+        except Exception:
+            credits = None
+        if credits is not None:
+            return i18n.t("ai.test.ok_credits", name=self.display_name, credits=f"{float(credits):g}", ms=f"{ms:.0f}")
+        return super().ping_message(resp, ms)
+
     def generate(self, prompt: str, *, vault: Any = None, aspect: str = "1:1", seed: Optional[int] = None, n: int = 1,
                  negative: str = "", width: Optional[int] = None, height: Optional[int] = None, model: Optional[str] = None,
                  timeout: float = 60.0, max_wait: float = 180.0, **_: Any) -> ImageResult:
         secret = self.secret(vault)
-        mdl = model or self.model(self.MODEL)
         w, h = (width, height) if width and height else size_for(aspect)
-        images: List[bytes] = []
-        for i in range(max(1, int(n))):
-            body: Dict[str, Any] = {"prompt": prompt, "width": int(w), "height": int(h), "output_format": "png",
-                                    "safety_tolerance": 2}
-            if seed is not None:
-                body["seed"] = int(seed) + i
-            sub = self.request_json("POST", f"/v1/{mdl}", secret=secret, timeout=timeout, json_body=body)
-            poll_url = sub.get("polling_url") or (f"{self.endpoint()}/v1/get_result?id={sub['id']}" if sub.get("id") else "")
-            if not poll_url:
-                raise ai_err("bad_response", source=self.id, name=self.display_name)
 
-            def check(url: str = poll_url) -> Tuple[bool, Any]:
-                data = self.request_json("GET", url, secret=secret, timeout=timeout)
-                status = str(data.get("status", ""))
-                if status == "Ready":
-                    return True, (data.get("result") or {}).get("sample")
-                if status in ("Request Moderated", "Content Moderated"):
-                    raise ai_err("moderated", source=self.id, name=self.display_name)
-                if status in ("Error", "Failed", "Task not found"):
-                    raise ai_err("bad_response", source=self.id, name=self.display_name, technical=status)
-                return False, None
-            sample = self.poll(check, interval=1.0, max_wait=max_wait)
-            if not sample:
-                raise ai_err("bad_response", source=self.id, name=self.display_name)
-            images.append(self.download(str(sample)))
-        return ImageResult(images, Usage(self.id, mdl, 0, 0, float(len(images)), pricing.image_cost(mdl, len(images))),
-                           self.id, mdl, seed)
+        def run(mdl: str) -> List[bytes]:
+            images: List[bytes] = []
+            for i in range(max(1, int(n))):
+                body: Dict[str, Any] = {"prompt": prompt, "width": int(w), "height": int(h), "output_format": "png",
+                                        "safety_tolerance": 2}
+                if seed is not None:
+                    body["seed"] = int(seed) + i
+                sub = self.request_json("POST", f"/v1/{mdl}", secret=secret, timeout=timeout, json_body=body, model=mdl)
+                poll_url = sub.get("polling_url") or (f"{self.endpoint()}/v1/get_result?id={sub['id']}" if sub.get("id") else "")
+                if not poll_url:
+                    raise ai_err("bad_response", source=self.id, name=self.display_name)
+
+                def check(url: str = poll_url) -> Tuple[bool, Any]:
+                    data = self.request_json("GET", url, secret=secret, timeout=timeout)
+                    status = str(data.get("status", ""))
+                    if status == "Ready":
+                        return True, (data.get("result") or {}).get("sample")
+                    if status in self.MODERATED:
+                        raise ai_err("moderated", source=self.id, name=self.display_name)
+                    if status in self.FAILED:
+                        raise ai_err("bad_response", source=self.id, name=self.display_name, technical=status)
+                    return False, None                                  # Pending / Reasoning / Generating / bilinmeyen: beklemeye devam
+                sample = self.poll(check, interval=1.0, max_wait=max_wait)
+                if not sample:
+                    raise ai_err("bad_response", source=self.id, name=self.display_name)
+                images.append(self.download(str(sample)))
+            return images
+
+        used: List[str] = []
+        images = self.walk("image", self.candidates("image", self.MODELS, model), lambda m: (used.append(m), run(m))[1])
+        mdl = used[-1]
+        return ImageResult(images, Usage(self.id, mdl, 0, 0, float(len(images)), pricing.image_cost(mdl, len(images))), self.id, mdl, seed)
 
 
 class GoogleImagenProvider(AIProvider):
-    """Imagen: ``POST /v1beta/models/<model>:predict`` → ``predictions[].bytesBase64Encoded``."""
-    MODEL = "imagen-4.0-generate-001"
-    ASPECTS = ("1:1", "3:4", "4:3", "9:16", "16:9")
+    """Google görsel. **Imagen kapatıldı**; Gemini görsel modelleri ("Nano Banana") ``generateContent`` ile çalışır:
+    ``POST /v1/models/<model>:generateContent`` → ``candidates[0].content.parts[].inlineData`` (base64).
+
+    Kimlik ``google_imagen`` aynı kaldı (kasadaki anahtar ve ayarlar bozulmasın). Kaynak:
+    https://ai.google.dev/gemini-api/docs/image-generation (REST sekmesi, "generateContent") · https://ai.google.dev/gemini-api/docs/imagen
+    ("Imagen models are shut down").
+    """
+    MODEL = "gemini-nano-banana-2.1"
+    MODELS = ("gemini-nano-banana-2.1", "gemini-3.1-flash-image", "gemini-2.5-flash-image")
+    ASPECTS = ("1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9")     # tüm Gemini görsel modellerinde ortak
+    BLOCKED = ("SAFETY", "IMAGE_SAFETY", "PROHIBITED_CONTENT", "IMAGE_PROHIBITED_CONTENT", "BLOCKLIST", "SPII", "RECITATION",
+               "IMAGE_RECITATION", "OTHER", "IMAGE_OTHER", "NO_IMAGE")
 
     def __init__(self, *, settings: Any = None, transport: Any = None, **kw: Any) -> None:
-        super().__init__("google_imagen", "Google Imagen", ProviderKind.IMAGE, base_url="https://generativelanguage.googleapis.com",
-                         ping_path="/v1beta/models", auth="header:x-goog-api-key", settings=settings, transport=transport, **kw)
+        super().__init__("google_imagen", "Google Gemini görsel", ProviderKind.IMAGE, base_url="https://generativelanguage.googleapis.com",
+                         ping_path="/v1beta/models", auth="header:x-goog-api-key", settings=settings, transport=transport,
+                         ping_params={"pageSize": "50"}, **kw)
+
+    def _ratio(self, aspect: str) -> str:
+        a, b = parse_aspect(aspect)
+        return min(self.ASPECTS, key=lambda s: abs(math.log((parse_aspect(s)[0] / parse_aspect(s)[1]) / (a / b))))
+
+    @staticmethod
+    def _parts(data: Any) -> List[Mapping[str, Any]]:
+        out: List[Mapping[str, Any]] = []
+        for cand in (data.get("candidates") if isinstance(data, Mapping) else None) or []:
+            content = cand.get("content") if isinstance(cand, Mapping) else None
+            out += [p for p in ((content or {}).get("parts") or []) if isinstance(p, Mapping)]
+        return out
 
     def generate(self, prompt: str, *, vault: Any = None, aspect: str = "1:1", n: int = 1, model: Optional[str] = None,
-                 timeout: float = 90.0, **_: Any) -> ImageResult:
+                 timeout: float = 120.0, **_: Any) -> ImageResult:
         secret = self.secret(vault)
-        mdl = model or self.model(self.MODEL)
-        a, b = parse_aspect(aspect)
-        ratio = min(self.ASPECTS, key=lambda s: abs((parse_aspect(s)[0] / parse_aspect(s)[1]) - a / b))
-        body = {"instances": [{"prompt": prompt}], "parameters": {"sampleCount": max(1, min(4, int(n))), "aspectRatio": ratio}}
-        data = self.request_json("POST", f"/v1beta/models/{mdl}:predict", secret=secret, timeout=timeout, json_body=body)
-        preds = data.get("predictions") if isinstance(data, Mapping) else None
-        images = [base64.b64decode(p["bytesBase64Encoded"]) for p in (preds or []) if isinstance(p, Mapping) and p.get("bytesBase64Encoded")]
-        if not images:
-            raise ai_err("moderated" if isinstance(data, Mapping) and not preds else "bad_response", source=self.id, name=self.display_name)
-        return ImageResult(images, Usage(self.id, mdl, 0, 0, float(len(images)), pricing.image_cost(mdl, len(images))), self.id, mdl)
+        ratio = self._ratio(aspect)
+        body = {"contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                "generationConfig": {"responseModalities": ["TEXT", "IMAGE"], "imageConfig": {"aspectRatio": ratio}}}
+
+        def one(mdl: str) -> Tuple[bytes, str]:
+            data = self.request_json("POST", f"/v1/models/{mdl}:generateContent", secret=secret, timeout=timeout, json_body=body, model=mdl)
+            for part in self._parts(data):
+                blob = part.get("inlineData") or part.get("inline_data")
+                if isinstance(blob, Mapping) and blob.get("data"):
+                    return base64.b64decode(blob["data"]), str(blob.get("mimeType") or blob.get("mime_type") or "image/png")
+            reasons = [str(c.get("finishReason", "")) for c in (data.get("candidates") or []) if isinstance(c, Mapping)] if isinstance(data, Mapping) else []
+            block = str((data.get("promptFeedback") or {}).get("blockReason", "")) if isinstance(data, Mapping) else ""
+            if block or any(r in self.BLOCKED for r in reasons):
+                raise ai_err("moderated", source=self.id, name=self.display_name, technical=",".join([block, *reasons]))
+            raise ai_err("bad_response", source=self.id, name=self.display_name, technical=",".join(reasons) or "görsel yok")
+
+        used: List[str] = []
+        cands = self.candidates("image", self.MODELS, model)
+        images: List[bytes] = []
+        mime = "image/png"
+        for _i in range(max(1, min(4, int(n)))):
+            img, mime = self.walk("image", cands, lambda m: (used.append(m), one(m))[1])
+            images.append(img)
+            cands = [used[-1]]
+        mdl = used[-1]
+        return ImageResult(images, Usage(self.id, mdl, 0, 0, float(len(images)), pricing.image_cost(mdl, len(images))), self.id, mdl, mime=mime)
+
+
+GoogleImageProvider = GoogleImagenProvider
 
 
 class OpenAIImageProvider(AIProvider):
-    """OpenAI uyumlu görsel (``/images/generations``, ``/images/edits``). Anahtar ``openai_compat`` ile paylaşılır."""
-    MODEL = "gpt-image-1"
+    """OpenAI görsel (``/images/generations``, ``/images/edits``). Anahtar ``openai_compat`` ile paylaşılır.
+
+    gpt-image modelleri her zaman ``b64_json`` döner (``response_format`` gönderilmez). ``gpt-image-1``/``dall-e-*`` kapatıldı.
+    Kaynak: https://developers.openai.com/api/reference/resources/images · https://developers.openai.com/api/docs/deprecations
+    (düzenleme formu: ``image[]`` + ``mask`` + ``prompt``; maske ``alpha`` kanalı ister, **saydam** alan düzenlenir).
+    """
+    MODEL = "gpt-image-2.6-flare"
+    MODELS = ("gpt-image-2.6-flare", "gpt-image-2.5-flare", "gpt-image-2.6-sunburst", "gpt-image-2.5-sunburst", "gpt-image-2")
+    EDIT_MODELS = ("gpt-image-2.6-sunburst", "gpt-image-2.5-sunburst", "gpt-image-2.6-flare", "gpt-image-2.5-flare", "gpt-image-2")
     SIZES = ((1024, 1024), (1536, 1024), (1024, 1536))
 
     def __init__(self, *, settings: Any = None, transport: Any = None, **kw: Any) -> None:
@@ -137,22 +213,31 @@ class OpenAIImageProvider(AIProvider):
         return out
 
     def generate(self, prompt: str, *, vault: Any = None, aspect: str = "1:1", n: int = 1, model: Optional[str] = None,
-                 timeout: float = 120.0, **_: Any) -> ImageResult:
+                 timeout: float = 180.0, **_: Any) -> ImageResult:
         secret = self.secret(vault)
-        mdl = model or self.model(self.MODEL)
-        body: Dict[str, Any] = {"model": mdl, "prompt": prompt, "n": max(1, min(4, int(n))), "size": self._size(aspect)}
-        if mdl.startswith("dall-e"):
-            body["response_format"] = "b64_json"
-        images = self._images(self.request_json("POST", "/images/generations", secret=secret, timeout=timeout, json_body=body))
+        used: List[str] = []
+
+        def one(mdl: str) -> List[bytes]:
+            used.append(mdl)
+            body: Dict[str, Any] = {"model": mdl, "prompt": prompt, "n": max(1, min(4, int(n))), "size": self._size(aspect)}
+            if mdl.startswith("dall-e"):
+                body["response_format"] = "b64_json"
+            return self._images(self.request_json("POST", "/images/generations", secret=secret, timeout=timeout, json_body=body, model=mdl))
+        images = self.walk("image", self.candidates("image", self.MODELS, model), one)
+        mdl = used[-1]
         return ImageResult(images, Usage(self.id, mdl, 0, 0, float(len(images)), pricing.image_cost(mdl, len(images))), self.id, mdl)
 
     def edit(self, image: bytes, mask: bytes, prompt: str, *, vault: Any = None, model: Optional[str] = None,
-             timeout: float = 120.0, **_: Any) -> ImageResult:
-        """``mask``: PNG; **saydam** alanlar düzenlenir (OpenAI kuralı)."""
+             timeout: float = 180.0, **_: Any) -> ImageResult:
+        """``mask``: PNG (alfa kanallı); **saydam** alanlar düzenlenir (OpenAI kuralı)."""
         secret = self.secret(vault)
-        mdl = model or self.model(self.MODEL)
-        files = {"image": ("image.png", image, "image/png"), "mask": ("mask.png", mask, "image/png")}
-        data = self.request_json("POST", "/images/edits", secret=secret, timeout=timeout, files=files,
-                                 data={"model": mdl, "prompt": prompt, "n": "1"})
-        images = self._images(data)
+        used: List[str] = []
+
+        def one(mdl: str) -> List[bytes]:
+            used.append(mdl)
+            files = {"image[]": ("image.png", image, "image/png"), "mask": ("mask.png", mask, "image/png")}
+            return self._images(self.request_json("POST", "/images/edits", secret=secret, timeout=timeout, files=files,
+                                                  data={"model": mdl, "prompt": prompt, "n": "1"}, model=mdl))
+        images = self.walk("edit", self.candidates("edit", self.EDIT_MODELS, model), one)
+        mdl = used[-1]
         return ImageResult(images, Usage(self.id, mdl, 0, 0, 1.0, pricing.image_cost(mdl, 1)), self.id, mdl)

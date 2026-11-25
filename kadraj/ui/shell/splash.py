@@ -12,16 +12,17 @@ from typing import Dict, Optional
 
 from PySide6.QtCore import QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QGuiApplication, QPainter, QPen
-from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QPushButton, QVBoxLayout, QWidget
 
 from ... import __version__
-from ...core import i18n
+from ...core import i18n, updater
 from ..theme.manager import ThemedMixin, current_tokens
 from ..widgets.lockup import Lockup
 from .startup import ToolStatus, detect_tools, summary_line
 
 SPLASH_MIN_MS = 2500
 SPLASH_MAX_MS = 3500
+UPDATE_BUDGET_MS = 8000        # bileşen denetimi (sürüm sorguları + yt-dlp) için en çok bu kadar beklenir; sonrası arka planda
 _FRAME_MS = 16
 
 
@@ -32,7 +33,8 @@ def splash_duration() -> int:
 class SplashScreen(ThemedMixin, QWidget):
     finished = Signal()
 
-    def __init__(self, duration_ms: Optional[int] = None, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, duration_ms: Optional[int] = None, parent: Optional[QWidget] = None, *,
+                 updates: bool = False) -> None:
         super().__init__(parent, Qt.WindowType.SplashScreen | Qt.WindowType.FramelessWindowHint)
         self.setObjectName("SplashRoot")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -40,6 +42,9 @@ class SplashScreen(ThemedMixin, QWidget):
         self._started: Optional[float] = None
         self._done = False
         self._tools: Dict[str, ToolStatus] = {}
+        self._updates = updates                      # açılışta bileşen güncelleme (yt-dlp/FFmpeg/Deno)
+        self._run: Optional[updater.BackgroundRun] = None
+        self._update_skipped = False
         tk = self.tk
         self.resize(tk.px(720), tk.px(460))
 
@@ -65,6 +70,10 @@ class SplashScreen(ThemedMixin, QWidget):
         self.footer.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.footer.setStyleSheet("font-size: 11px;")
         lay.addWidget(self.footer)
+        self.skip_btn = QPushButton(i18n.t("splash.skip"))        # güncelleme beklenirken görünür; sürer ama beklemez
+        self.skip_btn.setVisible(False)
+        self.skip_btn.clicked.connect(self._skip_updates)
+        lay.addWidget(self.skip_btn, 0, Qt.AlignmentFlag.AlignHCenter)
 
         self._timer = QTimer(self)
         self._timer.setInterval(_FRAME_MS)
@@ -80,13 +89,28 @@ class SplashScreen(ThemedMixin, QWidget):
             geo = screen.availableGeometry()
             self.move(geo.center().x() - self.width() // 2, geo.center().y() - self.height() // 2)
         self._started = time.perf_counter()
+        if self._updates:
+            self._run = updater.BackgroundRun().start()
+            self.skip_btn.setVisible(True)
         self.show()
         self._timer.start()
+
+    def _holding(self) -> bool:
+        """Bileşen denetimi sürüyor mu (ve bütçe/\"Atla\" ile bırakılmadı mı)? Öyleyse splash kapanmaz."""
+        run = self._run
+        if run is None or self._update_skipped or self._started is None or run.small_done.is_set():
+            return False
+        return (time.perf_counter() - self._started) * 1000.0 < UPDATE_BUDGET_MS
+
+    def _skip_updates(self) -> None:
+        self._update_skipped = True            # iş parçacığı arka planda sürer; yeni sürümler bir sonraki açılışta konur
+        self.skip_btn.setVisible(False)
 
     def progress(self) -> float:
         if self._started is None:
             return 0.0
-        return min(1.0, (time.perf_counter() - self._started) * 1000.0 / self._duration)
+        frac = min(1.0, (time.perf_counter() - self._started) * 1000.0 / self._duration)
+        return min(frac, 0.95) if self._holding() else frac
 
     def _status_text(self, frac: float) -> str:
         steps = [("splash.step_settings", None), ("splash.step_ffmpeg", "ffmpeg"),
@@ -96,9 +120,13 @@ class SplashScreen(ThemedMixin, QWidget):
 
     def _tick(self) -> None:
         frac = self.progress()
-        self.status.setText(self._status_text(frac))
+        if self._holding() and self._run is not None:
+            self.status.setText(self._run.text or i18n.t("splash.update_check"))
+        else:
+            self.status.setText(self._status_text(frac))
+            self.skip_btn.setVisible(False)
         self.update()
-        if frac >= 1.0:
+        if frac >= 1.0 and not self._holding():
             self.skip()
 
     def skip(self) -> None:

@@ -1,7 +1,7 @@
-"""Açılış denetimleri — ağa **çıkmadan**, yalnızca yerel araç algılama (plan §0.2).
+"""Açılış denetimleri — yalnızca yerel araç algılama (ağ yok; bileşen güncellemesi ``core/updater.py``'de).
 
 Splash altındaki "yt-dlp ✓ · FFmpeg ✓ · Ollama ✓" satırını ve "Stüdyo hazırlanıyor… FFmpeg kontrol ediliyor"
-durum metnini besler. Hiçbir denetim istisna atmaz.
+durum metnini besler. Hiçbir denetim istisna atmaz. ffmpeg/ffprobe/deno/yt-dlp aramasını ``core/components.py`` yapar.
 """
 from __future__ import annotations
 
@@ -9,6 +9,8 @@ import importlib.util
 import shutil
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Tuple
+
+from ...core import components
 
 
 @dataclass(frozen=True)
@@ -34,8 +36,9 @@ def _module(name: str) -> bool:
 
 #: (anahtar, etiket, denetim) — sıra splash'te gösterilen sıradır.
 CHECKS: List[Tuple[str, str, Callable[[], bool]]] = [
-    ("ffmpeg", "FFmpeg", lambda: _which("ffmpeg") and _which("ffprobe")),
-    ("yt-dlp", "yt-dlp", lambda: _module("yt_dlp") or _which("yt-dlp")),
+    ("ffmpeg", "FFmpeg", lambda: components.have("ffmpeg") and components.have("ffprobe")),
+    ("yt-dlp", "yt-dlp", lambda: components.ytdlp_choice() is not None or _module("yt_dlp")),
+    ("deno", "Deno", lambda: components.have("deno")),
     ("ollama", "Ollama", lambda: _which("ollama")),
     ("portaudio", "PortAudio", lambda: _module("sounddevice")),
 ]

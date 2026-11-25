@@ -109,4 +109,8 @@ EN: Dict[str, str] = {
     "ai.err.ffmpeg.step1": "Make sure FFmpeg is installed.",
 }
 
+from .aiguide_strings import EN as _GUIDE_EN, TR as _GUIDE_TR   # noqa: E402 — neden/adım kartları, durum çubuğu, kurulum kartı
+TR.update(_GUIDE_TR)                                             # yeni metinler eski tek adımlı olanların yerine geçer
+EN.update(_GUIDE_EN)
+
 STRINGS: Dict[str, Dict[str, str]] = {"tr": TR, "en": EN}

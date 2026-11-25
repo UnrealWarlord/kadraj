@@ -33,7 +33,7 @@ def test_anthropic_request_shape_and_cost(vault):
     res = p.complete([{"role": "user", "content": "Selam"}], system="Kısa yaz.", vault=vault, temperature=0.9)
     req, body = rec.requests[0], rec.body()
     assert req.url.path == "/v1/messages" and req.headers["x-api-key"] == "sk-ant-SECRET-1234"
-    assert req.headers["anthropic-version"] == "2023-06-01"
+    assert req.headers["anthropic-version"] == "2026-10-21"                      # docs: platform.claude.com/docs/en/api/messages (curl örnekleri)
     assert body["model"] == "claude-opus-5-5" and body["max_tokens"] == 16000 and body["system"] == "Kısa yaz."
     assert "temperature" not in body and "thinking" not in body                          # 5.x'te örnekleme parametresi 400 verir
     assert body["fallbacks"] == "default" and req.headers["anthropic-beta"] == "server-side-fallback-2026-07-01"
@@ -49,7 +49,10 @@ def test_anthropic_tiers_models_settings_and_legacy_temperature(vault):
     p.complete([{"role": "user", "content": "x"}], vault=vault, tier="cheap")
     assert rec.body()["model"] == "claude-haiku-5-5" and rec.body()["max_tokens"] == 4096 and "fallbacks" not in rec.body()
     p.complete([{"role": "user", "content": "x"}], vault=vault, model="claude-sonnet-4-6", temperature=0.3)
-    assert rec.body()["temperature"] == 0.3                                               # eski modelde serbest
+    assert "temperature" not in rec.body()                       # API 2026-10-21: örnekleme parametresi her modelde 400
+    old = AnthropicProvider(transport=rec.transport, settings=FakeSettings(**{"providers.anthropic.api_version": "2023-06-01"}))
+    old.complete([{"role": "user", "content": "x"}], vault=vault, model="claude-sonnet-4-6", temperature=0.3)
+    assert rec.body()["temperature"] == 0.3                      # eski API sürümünde, eski modelde serbest
 
 
 def test_anthropic_json_schema_vision_and_refusal(vault):
@@ -71,10 +74,10 @@ def test_anthropic_errors_never_leak_the_key(vault):
     with pytest.raises(SmartError) as ei:
         p.complete([{"role": "user", "content": "x"}], vault=vault)
     e = ei.value
-    assert e.code == "provider.auth" and e.status == 401 and "SECRET" not in (e.technical + e.summary + repr(e.actions))
+    assert e.code == "ai.auth" and e.status == 401 and e.steps and len(e.steps) >= 3 and "SECRET" not in (e.technical + e.summary + repr(e.actions))
     with pytest.raises(SmartError) as ei:
         AnthropicProvider(transport=Recorder().transport).complete([{"role": "user", "content": "x"}], vault=FakeVault())
-    assert ei.value.code == "provider.no_key"
+    assert ei.value.code == "ai.no_key" and len(ei.value.steps) >= 3
     with pytest.raises(SmartError) as ei:
         AnthropicProvider(transport=Recorder(lambda r: httpx.Response(400, json={"error": {"message": "Your credit balance is too low"}})).transport).complete(
             [{"role": "user", "content": "x"}], vault=vault)
@@ -91,7 +94,7 @@ def test_network_failure_becomes_offline_card_with_fallback_marker(vault):
     with pytest.raises(SmartError) as ei:
         AnthropicProvider(transport=httpx.MockTransport(boom)).complete([{"role": "user", "content": "x"}], vault=vault)
     from kadraj.core.errors import is_network_error
-    assert is_network_error(ei.value) and ei.value.code.startswith("net.")
+    assert is_network_error(ei.value) and ei.value.code == "ai.offline" and len(ei.value.steps) >= 3
 
 
 def test_extract_json_tolerates_fences_and_prose():
@@ -110,7 +113,9 @@ def test_openai_compat_chat_vision_json_and_custom_base(vault):
     res = p.complete([{"role": "user", "content": "ver"}], system="sistem", vault=vault, want_json=True, temperature=0.2, images=[png_bytes()])
     req, body = rec.requests[0], rec.body()
     assert str(req.url) == "http://lm.local/v1/chat/completions" and req.headers["authorization"] == "Bearer sk-oa-SECRET-5678"
-    assert body["messages"][0] == {"role": "system", "content": "sistem"} and body["response_format"] == {"type": "json_object"}
+    # docs: json_object kipi, mesajlardan birinde JSON istenmedikçe JSON üretmez → sistem iletisine eklenir
+    assert body["messages"][0] == {"role": "system", "content": "sistem\n\nReply with valid JSON only."} and body["response_format"] == {"type": "json_object"}
+    assert body["max_tokens"] == 4096 and "max_completion_tokens" not in body                    # OpenAI olmayan sunucu: eski ad
     assert body["temperature"] == 0.2 and body["messages"][-1]["content"][1]["image_url"]["url"].startswith("data:image/png;base64,")
     assert res.json() == {"x": 1} and res.usage.cost_usd == pytest.approx(1000 / 1e6 * 0.15 + 500 / 1e6 * 0.6)
 
@@ -125,13 +130,13 @@ def test_ollama_local_chat_vision_models_and_down_card():
     assert p.list_models() == ["llama3.1:8b", "llava:7b"] and not p.needs_key and p.local
     res = p.complete([{"role": "user", "content": "selam"}], want_json=True, images=[png_bytes()], temperature=0.1)
     body = rec.body()
-    assert body["model"] == "llava" and body["format"] == "json" and body["stream"] is False and body["messages"][-1]["images"]
+    assert body["model"] == "llava:7b" and body["format"] == "json"                              # kurulu olan görsel modeli seçilir and body["stream"] is False and body["messages"][-1]["images"]
     assert body["options"]["temperature"] == 0.1 and res.usage.cost_usd == 0 and res.usage.tokens_in == 12
     def down(request):
         raise httpx.ConnectError("refused")
     with pytest.raises(SmartError) as ei:
         OllamaProvider(transport=httpx.MockTransport(down)).complete([{"role": "user", "content": "x"}])
-    assert ei.value.code == "provider.local_down"
+    assert ei.value.code == "ai.local_down" and len(ei.value.steps) >= 3
 
 
 # ================================================================================ Görsel
@@ -169,18 +174,32 @@ def test_flux_polls_until_ready_and_increments_seed(vault):
     assert ei.value.code == "ai.timeout"
 
 
-def test_imagen_aspect_mapping_and_base64(vault):
+def test_google_image_uses_gemini_generate_content_not_the_shut_down_imagen(vault):
+    # Imagen KAPATILDI: https://ai.google.dev/gemini-api/docs/imagen ("Imagen models are shut down").
+    # Gemini görsel REST biçimi: https://ai.google.dev/gemini-api/docs/image-generation (generateContent sekmesi)
     import base64
+    import json
     img = png_bytes()
-    rec = Recorder(lambda r: httpx.Response(200, json={"predictions": [{"bytesBase64Encoded": base64.b64encode(img).decode()}] * 2}))
+    part = {"inlineData": {"mimeType": "image/png", "data": base64.b64encode(img).decode()}}
+    rec = Recorder(lambda r: httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": "x"}, part]}, "finishReason": "STOP"}]}))
     p = GoogleImagenProvider(transport=rec.transport)
     res = p.generate("kedi", vault=vault, aspect="3:2", n=2)
-    req, body = rec.requests[0], rec.body()
-    assert req.url.path == "/v1beta/models/imagen-4.0-generate-001:predict" and req.headers["x-goog-api-key"] == "g-SECRET"
-    assert body["parameters"] == {"sampleCount": 2, "aspectRatio": "4:3"} and res.images == [img, img]
+    req = rec.requests[0]
+    body = json.loads(req.content)
+    assert req.url.path == "/v1/models/gemini-nano-banana-2.1:generateContent" and ":predict" not in str(req.url)
+    assert req.headers["x-goog-api-key"] == "g-SECRET" and "key=" not in str(req.url)
+    assert body["contents"] == [{"role": "user", "parts": [{"text": "kedi"}]}]
+    assert body["generationConfig"] == {"responseModalities": ["TEXT", "IMAGE"], "imageConfig": {"aspectRatio": "3:2"}}
+    assert len(rec.requests) == 2 and res.images == [img, img] and res.model == "gemini-nano-banana-2.1"      # n=2 → iki istek
+    # güvenlik reddi → "moderated"; metin-yalnız yanıt → beklenmedik yanıt
+    blocked = Recorder(lambda r: httpx.Response(200, json={"candidates": [{"finishReason": "IMAGE_SAFETY"}]}))
     with pytest.raises(SmartError) as ei:
-        GoogleImagenProvider(transport=Recorder(lambda r: httpx.Response(200, json={})).transport).generate("x", vault=vault)
+        GoogleImagenProvider(transport=blocked.transport).generate("x", vault=vault)
     assert ei.value.code == "ai.moderated"
+    textonly = Recorder(lambda r: httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": "çizemem"}]}, "finishReason": "STOP"}]}))
+    with pytest.raises(SmartError) as ei:
+        GoogleImagenProvider(transport=textonly.transport).generate("x", vault=vault)
+    assert ei.value.code == "ai.bad_response"
 
 
 def test_openai_image_generate_and_edit_use_shared_key(vault):
@@ -202,6 +221,8 @@ def test_openai_image_generate_and_edit_use_shared_key(vault):
 def comfy_routes(seen):
     def route(r):
         seen.append((r.method, r.url.path))
+        if r.url.path == "/object_info/CheckpointLoaderSimple":              # docs.comfy.org/.../comms_routes
+            return httpx.Response(200, json={"CheckpointLoaderSimple": {"input": {"required": {"ckpt_name": [["v1-5-pruned-emaonly-fp16.safetensors"]]}}}})
         if r.url.path == "/upload/image":
             return httpx.Response(200, json={"name": "up.png"})
         if r.url.path == "/prompt":
@@ -247,15 +268,18 @@ def test_comfyui_errors_down_and_workflow_failure():
         raise httpx.ConnectError("refused")
     with pytest.raises(SmartError) as ei:
         ComfyUIProvider(transport=httpx.MockTransport(down)).generate("x")
-    assert ei.value.code == "provider.local_down"
+    assert ei.value.code == "ai.local_down"
     def route(r):
+        if r.url.path == "/object_info/CheckpointLoaderSimple":
+            return httpx.Response(200, json={"CheckpointLoaderSimple": {"input": {"required": {"ckpt_name": [["a.safetensors"]]}}}})
         if r.url.path == "/prompt":
             return httpx.Response(200, json={"prompt_id": "E"})
         return httpx.Response(200, json={"E": {"status": {"status_str": "error", "messages": ["ckpt yok"]}}})
     with pytest.raises(SmartError) as ei:
         ComfyUIProvider(transport=Recorder(route).transport, sleep=NOSLEEP).generate("x")
     assert ei.value.code == "ai.comfy" and "ckpt yok" in ei.value.summary
-    bad = Recorder(lambda r: httpx.Response(200, json={"error": {"message": "node eksik"}}))
+    bad = Recorder(lambda r: httpx.Response(200, json={"error": {"message": "node eksik"}}) if r.url.path == "/prompt" else
+                   httpx.Response(200, json={"CheckpointLoaderSimple": {"input": {"required": {"ckpt_name": [["a.safetensors"]]}}}}))
     with pytest.raises(SmartError) as ei:
         ComfyUIProvider(transport=bad.transport, sleep=NOSLEEP).generate("x")
     assert ei.value.code == "ai.comfy"

@@ -33,7 +33,8 @@ class ProduceResult:
 
 def extract_last_frame(video: Path, out: Path, ffmpeg: Optional[str] = None) -> Path:
     """Videonun **son karesini** PNG olarak çıkarır (bir sonraki sahnenin başlangıç görüntüsü)."""
-    exe = ffmpeg or shutil.which("ffmpeg")
+    from ...core import components
+    exe = ffmpeg or components.ffmpeg_path()
     if not exe:
         raise ai_err("ffmpeg")
     out.parent.mkdir(parents=True, exist_ok=True)

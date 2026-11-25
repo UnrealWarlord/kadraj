@@ -3,6 +3,9 @@
 * **Linux**: PyInstaller önyükleyicisi ``LD_LIBRARY_PATH``'i paket klasörüne çevirir. Bu değişken alt süreçlere de
   geçer; sistemdeki ``ffmpeg`` gibi araçlar paketteki (başka bir dağıtımdan gelen) kütüphaneleri yükleyip
   ``version 'GLIBCXX_…' not found`` ile ölür. Alt süreçler özgün ortamla başlatılır (``<DEĞİŞKEN>_ORIG`` geri yüklenir).
+* **Linux, ctypes ile yüklenen kütüphaneler**: ``sounddevice`` PortAudio'yu ``ctypes.util.find_library`` ile arar; bu çağrı
+  ``ldconfig``/``ld`` ister ve temiz bir sistemde (ldconfig yolu/``ld`` yok) paketin içindeki ``libportaudio.so.2``'yi bulamaz →
+  "ses arka ucu yok". Paketlenmişte ``find_library`` önce paket klasörüne bakar.
 * **Windows**: konsolsuz (pencereli) uygulamadan başlatılan her ``ffmpeg``/``ffprobe`` kısa süreliğine bir konsol
   penceresi açar; alt süreçler ``CREATE_NO_WINDOW`` ile başlatılır.
 """
@@ -33,10 +36,38 @@ def clean_env(env: Optional[Mapping[str, str]] = None) -> Dict[str, str]:
     return out
 
 
+def _bundle_dir() -> Optional[str]:
+    base = getattr(sys, "_MEIPASS", None)
+    return str(base) if base else None
+
+
+def _patch_find_library() -> None:
+    """``ctypes.util.find_library("x")`` önce ``<paket>/libx.so*`` dosyasını döndürür (yalnız Linux; geri alınabilir)."""
+    import ctypes.util
+    import glob
+    original = ctypes.util.find_library
+    if getattr(original, _PATCHED_FLAG, False):
+        return
+    base = _bundle_dir()
+
+    def find_library(name: str) -> Optional[str]:
+        if base:
+            hits = sorted(glob.glob(os.path.join(base, f"lib{name}.so*")))
+            if hits:
+                return hits[0]
+        return original(name)
+
+    setattr(find_library, _PATCHED_FLAG, True)
+    setattr(find_library, "__wrapped__", original)
+    ctypes.util.find_library = find_library          # type: ignore[assignment]
+
+
 def apply() -> bool:
     """Yalnızca paketlenmiş uygulamada ``subprocess.Popen``'ı yamalar (tekrar çağrılsa da bir kez). Yamalandıysa ``True``."""
     if not is_frozen():
         return False
+    if sys.platform.startswith("linux"):
+        _patch_find_library()
     popen = subprocess.Popen
     if getattr(popen.__init__, _PATCHED_FLAG, False):
         return True
@@ -60,3 +91,7 @@ def revert() -> None:
     init = subprocess.Popen.__init__
     if getattr(init, _PATCHED_FLAG, False):
         subprocess.Popen.__init__ = getattr(init, "__wrapped__")   # type: ignore[method-assign]
+    import ctypes.util
+    fl = ctypes.util.find_library
+    if getattr(fl, _PATCHED_FLAG, False):
+        ctypes.util.find_library = getattr(fl, "__wrapped__")   # type: ignore[assignment]

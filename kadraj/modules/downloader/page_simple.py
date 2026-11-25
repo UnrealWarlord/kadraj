@@ -5,11 +5,9 @@ yeniden çizilince (Basit ↔ Legend) indirme durumu korunur.
 """
 from __future__ import annotations
 
-from pathlib import Path
 from typing import List, Optional
 
-from PySide6.QtCore import QUrl, Qt
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QApplication, QCheckBox, QFrame, QHBoxLayout, QLabel, QLayout,
                                QLineEdit, QVBoxLayout, QWidget)
 
@@ -20,6 +18,7 @@ from ...ui.widgets import ChoiceCard, ChoiceGroup, SmartErrorCard, SquishyButton
 from ...ui.widgets.surface import page_surface_qss
 from ...storage import disk
 from .range_bar import RangeBar
+from .rows import RecentDownloadRow, first_available_quality, quality_top, unavailable_text
 from .service import (MODE_AUDIO, MODE_AV, MODE_VIDEO, QUALITY_BALANCED, QUALITY_BEST,
                       QUALITY_FAST, VideoInfo, describe_length, estimate_bytes, format_timecode)
 from .strings import K
@@ -29,10 +28,6 @@ _QUALITY_CARDS = (
     (QUALITY_BALANCED, K.QUALITY_BALANCED, K.QUALITY_BALANCED_SUB, "layers"),
     (QUALITY_BEST, K.QUALITY_BEST, K.QUALITY_BEST_SUB, "image"),
 )
-_STATUS_KEYS = {
-    "queued": K.STATUS_QUEUED, "running": K.STATUS_RUNNING, "done": K.STATUS_DONE,
-    "failed": K.STATUS_FAILED, "cancelled": K.STATUS_CANCELLED, "paused": K.STATUS_PAUSED,
-}
 
 
 def _clear(layout: QLayout) -> None:
@@ -195,6 +190,9 @@ class DownloaderSimplePage(ThemedMixin, QWidget):
             self.range.set_duration(info.duration)
             self.range.set_values(0.0, info.duration)
         self.go.setEnabled(True)
+        best = first_available_quality(info, self.service.draft.quality)
+        if best != self.service.draft.quality:              # seçili kalite bu videoda yoksa en yükseği seç
+            self.service.set_quality(best)
         self._sync_view()
 
     def _on_probe_failed(self, error) -> None:
@@ -247,6 +245,12 @@ class DownloaderSimplePage(ThemedMixin, QWidget):
         d = self.service.draft
         info = self._info
         for card, (qid, title_key, sub_key, _icon) in zip(self.quality_cards, _QUALITY_CARDS):
+            top = quality_top(info, qid)
+            if top is not None:                               # bu videoda yok: kart kapalı, en yüksek kaliteyi söyler
+                card.set_texts(i18n.t(title_key), unavailable_text(top), "")
+                card.setEnabled(False)
+                continue
+            card.setEnabled(True)
             trailing = ""
             if info is not None and not info.is_playlist:
                 start = d.start if d.partial else 0.0
@@ -290,23 +294,4 @@ class DownloaderSimplePage(ThemedMixin, QWidget):
             self.recent_rows.addWidget(empty)
             return
         for r in rows:
-            line = QFrame()
-            hl = QHBoxLayout(line)
-            hl.setContentsMargins(0, 4, 0, 4)
-            title = QLabel(r["title"] or "—")
-            title.setWordWrap(True)
-            hl.addWidget(title, 1)
-            status_key = _STATUS_KEYS.get(str(getattr(r["status"], "value", r["status"])), K.STATUS_QUEUED)
-            status = QLabel(i18n.t(status_key) + (f" · {int(r['progress'] * 100)}%"
-                                                  if r["status"].value == "running" else ""))
-            status.setProperty("role", "hint")
-            hl.addWidget(status)
-            if r["path"]:
-                btn = SquishyButton(i18n.t(K.BTN_SHOW_FOLDER), variant="secondary")
-                path = r["path"]
-                btn.clicked.connect(lambda _c=False, p=path: self._show_folder(p))
-                hl.addWidget(btn)
-            self.recent_rows.addWidget(line)
-
-    def _show_folder(self, path: str) -> None:
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(path).parent)))
+            self.recent_rows.addWidget(RecentDownloadRow(self.ctx, r))

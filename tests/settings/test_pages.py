@@ -29,7 +29,7 @@ def test_both_pages_open_through_the_shell_in_both_modes(ctx, svc, qtbot):
 def test_simple_page_key_rows_and_masked_eye(ctx, svc, qtbot):
     page = SettingsSimplePage(ctx)
     qtbot.addWidget(page)
-    assert page.key_box.count() == 8
+    assert page.key_box.count() == 9
     def pills():
         return [w.text() for w in page.findChildren(type(page.status)) if w.property("role") == "pill"]
 
@@ -70,7 +70,7 @@ def test_legend_page_tables_and_sections(ctx, svc, qtbot):
     assert page.nav.count() == 7 and page.stack.count() == 7
     for row in range(7):                                  # bölümler ilk seçildiğinde kurulur
         page.nav.setCurrentRow(row)
-    assert page.api_table.rowCount() == 8
+    assert page.api_table.rowCount() == 9
     svc.refresh_local(background=False)
     page._refresh_local()
     assert page.local_table.rowCount() == 3

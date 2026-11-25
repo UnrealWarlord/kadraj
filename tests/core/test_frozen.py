@@ -64,3 +64,19 @@ def test_apply_hides_console_windows_on_windows(monkeypatch):
         frozen.revert()
         monkeypatch.setattr(subprocess.Popen, "__init__", real_init)
     assert seen["creationflags"] == 0x200 | 0x08000000 and "env" not in seen
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="find_library yaması Linux'a özgü")
+def test_frozen_find_library_prefers_the_bundled_library(monkeypatch, tmp_path):
+    import ctypes.util
+    (tmp_path / "libkadrajdeneme.so.2").write_bytes(b"x")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+    original = ctypes.util.find_library
+    try:
+        assert frozen.apply() is True
+        assert ctypes.util.find_library("kadrajdeneme") == str(tmp_path / "libkadrajdeneme.so.2")
+        assert ctypes.util.find_library("c") == original("c")               # pakette olmayan: eski davranış
+    finally:
+        frozen.revert()
+    assert ctypes.util.find_library is original

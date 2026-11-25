@@ -25,7 +25,7 @@ DefaultDirName={localappdata}\Programs\{#AppName}
 DisableProgramGroupPage=yes
 UninstallDisplayName={#AppName}
 UninstallDisplayIcon={app}\{#AppExe}
-; Özel ikon yok (Inno Setup'ın varsayılan simgesi kullanılır).
+SetupIconFile=..\..\kadraj\ui\assets\icon\kadraj.ico
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=..\..\dist
@@ -44,6 +44,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 Source: "..\..\dist\KADRAJ\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "..\..\THIRD_PARTY_NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [InstallDelete]
 ; Güncellemede eski sürümün kütüphaneleri yeni olanlarla karışmasın.

@@ -22,11 +22,11 @@ STEP_COUNT = 5
 
 #: (sağlayıcı kimliği, resmî sitenin adresi). Adresler yayından önce doğrulanmalıdır.
 GUIDE_HOSTS: Tuple[Tuple[str, str], ...] = (
-    ("anthropic", "console.anthropic.com"),
+    ("anthropic", "platform.claude.com"),
     ("openai_compat", "platform.openai.com"),
     ("google_imagen", "aistudio.google.com"),
     ("elevenlabs", "elevenlabs.io"),
-    ("bfl_flux", "bfl.ai"),
+    ("bfl_flux", "dashboard.bfl.ai"),
     ("pexels", "pexels.com"),
     ("pixabay", "pixabay.com"),
     ("freesound", "freesound.org"),

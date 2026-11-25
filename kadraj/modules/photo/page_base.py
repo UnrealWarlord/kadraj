@@ -6,6 +6,7 @@ from typing import Any, Optional
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QFileDialog, QLabel, QVBoxLayout, QWidget
 
+from ...ai_engine.aiwidgets import AIPanel, handle_action, open_url_default
 from ...core import i18n
 from ...core.contracts import SmartAction, SmartError
 from ...ui.widgets.smart_error_card import SmartErrorCard
@@ -28,7 +29,19 @@ class PhotoPageBase(QWidget):
         self.share_label = QLabel("")
         self.share_label.setProperty("role", "hint")
         self.grid: Optional[VariationGrid] = None
+        #: üstte "Görsel yapay zekâsı: … · Bağlı" + (gerekirse) kurulum kartı; yazı yardımcısı isteğe bağlı satır
+        self.ai_panel = AIPanel(ctx, self.svc, ("image", "text"))
+        self.open_url = open_url_default                       # testler tarayıcı açmasın diye değiştirilebilir
         self.pick_image = lambda: QFileDialog.getOpenFileName(self, i18n.t("photo.pick_image"), "", "Images (*.png *.jpg *.jpeg *.webp)")[0]
+
+    @property
+    def open_url(self):
+        return self._open_url
+
+    @open_url.setter
+    def open_url(self, fn) -> None:
+        self._open_url = fn
+        self.ai_panel.set_open_url(fn)
 
     @property
     def error_visible(self) -> bool:
@@ -70,8 +83,15 @@ class PhotoPageBase(QWidget):
         self.clear_error()
         card = SmartErrorCard(err)
         card.dismissed.connect(self.clear_error)
+        card.actionTriggered.connect(self._on_action)
         self._error_card = card
         self.error_slot.addWidget(card)
+
+    def _on_action(self, action: SmartAction) -> None:
+        def retry() -> None:
+            self.clear_error()
+            self.svc.retry_last()
+        handle_action(self.ctx, action, retry=retry, open_url=self.open_url)
 
     def clear_error(self) -> None:
         if self._error_card is not None:

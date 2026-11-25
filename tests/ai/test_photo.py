@@ -194,7 +194,7 @@ def test_local_upscale_inpaint_style_transfer_and_cover(ctx, photo, world, qtbot
     photo.errorRaised.connect(errs.append)
     photo.inpaint(str(src), imageops.mask_from_strokes((40, 30), [([(10, 10)], 8)]), "yeşil çim")
     wait_idle(qtbot, photo)
-    assert errs and errs[-1].code.startswith("net.")                                    # sağlayıcı kapalı → sade kart
+    assert errs and errs[-1].code == "ai.offline"                                    # sağlayıcı kapalı → sade kart
     world.down.clear()
     world.image = png_bytes((40, 30), (0, 200, 0))
     photo.inpaint(str(src), imageops.mask_from_strokes((40, 30), [([(10, 10), (12, 12)], 8)]), "yeşil çim")

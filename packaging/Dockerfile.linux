@@ -20,6 +20,7 @@ RUN dnf -y install \
         python3.12 python3.12-devel python3.12-pip binutils \
         mesa-libGL mesa-libEGL libxkbcommon libxkbcommon-x11 fontconfig dbus-libs glib2 libX11-xcb \
         xcb-util-image xcb-util-keysyms xcb-util-renderutil xcb-util-wm xcb-util-cursor \
+    && (dnf -y install portaudio || (dnf -y install epel-release && dnf -y install portaudio)) \
     && dnf clean all \
     && rm -rf /var/cache/dnf
 

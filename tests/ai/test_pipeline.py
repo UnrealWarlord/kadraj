@@ -316,7 +316,7 @@ def test_failure_after_video_does_not_repay_video_on_resume(prod, tmp_path):
     m = PipelineMachine(p)
     gw.registry.get("elevenlabs").transport = Recorder(lambda r: httpx.Response(429, headers={"retry-after": "0"}, json={})).transport
     res = Producer(m, gw, tmp_path / "04").run()
-    assert res.status == "paused" and res.error.code == "provider.rate_limited" and p.scenes[0].done_steps == ["video", "last_frame"]
+    assert res.status == "paused" and res.error.code == "ai.rate_limit" and p.scenes[0].done_steps == ["video", "last_frame"]
     gw.registry.cool_down("elevenlabs", 0)
     gw.registry.get("elevenlabs").transport = Recorder(world.route).transport
     gw.registry._cool.clear()

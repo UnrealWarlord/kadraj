@@ -23,6 +23,7 @@ from ...ui.theme.manager import ThemedMixin, current_tokens
 from ...ui.widgets import SquishyButton
 from ...ui.widgets.surface import page_surface_qss
 from .guide import GUIDE_HOSTS, GuideView
+from .keytest import KeyTestResult
 from .service import WHISPER_MODELS, LocalRuntime
 from .strings import K
 
@@ -155,6 +156,8 @@ class SettingsLegendPage(ThemedMixin, QWidget):
         self.api_table = _table([i18n.t(K.TH_PROVIDER), i18n.t(K.TH_KEY), i18n.t(K.TH_MODEL),
                                  i18n.t(K.TH_STATE), i18n.t(K.TH_LATENCY), ""])
         lay.addWidget(self.api_table, 1)
+        self.key_result = KeyTestResult(self.service, self.ctx)             # "Bağlantıyı test et" sonucu: sade Türkçe + adımlar
+        lay.addWidget(self.key_result)
         footer = QHBoxLayout()
         footer.addStretch(1)
         test_all = SquishyButton(i18n.t(K.BTN_TEST_ALL), variant="secondary")
@@ -249,12 +252,16 @@ class SettingsLegendPage(ThemedMixin, QWidget):
         page, lay = _page()
         lay.addWidget(_caps(K.SECTION_UPDATES))
         self.tools_table = _table([i18n.t(K.TH_PROVIDER), i18n.t(K.TH_VERSION), i18n.t(K.TH_STATE),
-                                   i18n.t(K.TH_ACTION)], 2)
+                                   i18n.t(K.TH_ACTION)], 3)
         lay.addWidget(self.tools_table)
+        self.cb_auto_update = QCheckBox(i18n.t(K.AUTO_UPDATE))
+        self.cb_auto_update.setChecked(self.service.auto_update())
+        self.cb_auto_update.toggled.connect(self.service.set_auto_update)
+        lay.addWidget(self.cb_auto_update)
         refresh = SquishyButton(i18n.t(K.BTN_REFRESH), variant="secondary")
         refresh.clicked.connect(lambda: self.service.refresh_tools(background=True))
         lay.addWidget(refresh, 0)
-        note = QLabel(i18n.t(K.UPDATE_NOTE))
+        note = QLabel(i18n.t(K.UPDATE_STARTUP_NOTE))
         note.setProperty("role", "muted")
         note.setWordWrap(True)
         lay.addWidget(note)
@@ -363,6 +370,7 @@ class SettingsLegendPage(ThemedMixin, QWidget):
             guide = SquishyButton(i18n.t(K.BTN_GUIDE), variant="ghost")
             guide.clicked.connect(lambda _c=False, pid=row.provider_id: self._open_drawer(pid))
             self.api_table.setCellWidget(r, 5, _actions(test, key, guide))
+        self.key_result.refresh()
 
     def _refresh_local(self) -> None:
         runtimes = self.service.local_runtimes()
@@ -433,6 +441,7 @@ class SettingsLegendPage(ThemedMixin, QWidget):
         rows = (
             (i18n.t(K.TOOL_YTDLP), info.ytdlp, K.LED_OK if info.ytdlp else K.TOOL_MISSING, "update"),
             (i18n.t(K.TOOL_FFMPEG), info.ffmpeg, K.LED_OK if info.ffmpeg else K.TOOL_MISSING, None),
+            (i18n.t(K.TOOL_DENO), info.deno, K.LED_OK if info.deno else K.TOOL_MISSING, None),
         )
         self.tools_table.setRowCount(len(rows))
         for r, (name, version, state_key, action) in enumerate(rows):
@@ -440,7 +449,7 @@ class SettingsLegendPage(ThemedMixin, QWidget):
             self.tools_table.setItem(r, 1, QTableWidgetItem(version or "—"))
             self.tools_table.setItem(r, 2, QTableWidgetItem(i18n.t(state_key)))
             if action == "update":
-                btn = SquishyButton(i18n.t(K.BTN_UPDATE), variant="secondary")
+                btn = SquishyButton(i18n.t(K.UPDATE_NOW), variant="secondary")
                 btn.clicked.connect(self._update_ytdlp)
                 self.tools_table.setCellWidget(r, 3, _actions(btn))
             else:

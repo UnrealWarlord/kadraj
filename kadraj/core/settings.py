@@ -40,6 +40,7 @@ DEFAULTS: Dict[str, Any] = {
     "splash": True,
     "autosave_seconds": 20,
     "jobs": {"max_parallel": 2},
+    "tools": {"auto_update": True},      # açılışta yt-dlp / FFmpeg / Deno'yu resmî kaynaklardan güncelle
     "notifications": {"desktop": True, "min_seconds": 5},   # masaüstü bildirimi yalnızca ≥ 5 sn süren işler için
 }
 

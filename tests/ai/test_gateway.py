@@ -23,6 +23,12 @@ def ok_llm(text):
                                      "usage": {"input_tokens": 100, "output_tokens": 20}})
 
 
+def gemini_image(img: bytes) -> dict:
+    """https://ai.google.dev/gemini-api/docs/image-generation — generateContent yanıtı (parts[].inlineData)."""
+    return {"candidates": [{"content": {"parts": [{"inlineData": {"mimeType": "image/png", "data": base64.b64encode(img).decode()}}]},
+                            "finishReason": "STOP"}]}
+
+
 def make(router, vault, settings=None, **gw):
     rec = Recorder(router)
     reg = default_registry(settings)
@@ -38,13 +44,15 @@ def test_llm_prefers_cloud_records_usage_and_falls_to_local_when_offline(vault):
             raise httpx.ConnectError("offline")
         if r.url.host == "api.openai.com":
             raise httpx.ConnectError("offline")
+        if r.url.path == "/api/tags":                                               # https://docs.ollama.com/api/tags
+            return httpx.Response(200, json={"models": [{"name": "llama3.1:8b"}]})
         return httpx.Response(200, json={"message": {"content": "yerel yanıt"}, "prompt_eval_count": 7, "eval_count": 3})
     gw, rec, db, reg = make(router, vault)
     res = gw.llm("selam")
     assert res.text == "yerel yanıt" and gw.last_provider == "ollama"
     hosts = [r.url.host for r in rec.requests]
     assert hosts.count("api.anthropic.com") == 1 and "api.openai.com" not in hosts           # çevrimdışı: kalan bulut atlandı
-    assert db.usage == [{"provider": "ollama", "model": "llama3.1", "tokens_in": 7, "tokens_out": 3, "units": 0.0, "cost_usd": 0.0}]
+    assert db.usage == [{"provider": "ollama", "model": "llama3.1:8b", "tokens_in": 7, "tokens_out": 3, "units": 0.0, "cost_usd": 0.0}]
 
 
 def test_llm_cloud_success_writes_cost_and_session_totals(vault):
@@ -95,14 +103,14 @@ def test_image_adapts_prompt_per_provider_and_falls_back(vault):
         if r.url.host == "api.bfl.ai":
             return httpx.Response(500, json={})                                      # FLUX bozuk → sıradaki
         if r.url.host == "generativelanguage.googleapis.com":
-            return httpx.Response(200, json={"predictions": [{"bytesBase64Encoded": base64.b64encode(IMG).decode()}]})
+            return httpx.Response(200, json=gemini_image(IMG))
         return httpx.Response(404)
     gw, rec, db, reg = make(router, vault)
     spec = PromptSpec.create(subject="eski bir vapur", lighting="sisli sabah", style="sinematik", aspect="16:9", idea="sisli İstanbul")
     res, adapted = gw.image(spec, prefer_model="flux")
     assert gw.last_provider == "google_imagen" and adapted.model == "imagen" and res.images == [IMG]
     assert [r.url.host for r in rec.requests][:2] == ["api.bfl.ai", "generativelanguage.googleapis.com"]
-    assert "eski bir vapur" in json.loads(rec.requests[-1].content)["instances"][0]["prompt"]
+    assert "eski bir vapur" in json.loads(rec.requests[-1].content)["contents"][0]["parts"][0]["text"]
     assert db.usage[-1]["provider"] == "google_imagen" and db.usage[-1]["units"] == 1 and db.usage[-1]["cost_usd"] == pytest.approx(0.04)
     res, adapted = gw.image("düz metin istemi", extra={"aspect": "1:1"})
     assert adapted.text == "düz metin istemi"
@@ -113,7 +121,7 @@ def test_image_prefers_requested_model_provider_first(vault):
 
     def router(r):
         seen.append(r.url.host)
-        return httpx.Response(200, json={"predictions": [{"bytesBase64Encoded": base64.b64encode(IMG).decode()}]})
+        return httpx.Response(200, json=gemini_image(IMG))
     gw, rec, db, reg = make(router, vault)
     gw.image(PromptSpec.create(subject="kedi", lighting="gün ışığı", style="pastel", aspect="1:1"), prefer_model="imagen")
     assert seen[0] == "generativelanguage.googleapis.com"                           # tercih edilen kayıt sırasını aşar

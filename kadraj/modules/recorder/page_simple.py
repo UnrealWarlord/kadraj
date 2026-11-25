@@ -16,6 +16,7 @@ from ...core import i18n
 from ...core.contracts import Job
 from ...ui.widgets.squishy_button import SquishyButton
 from .dsp import FLOOR_DB, LevelAnalysis
+from .location import RecordingLocationBar, RecordingResultCard
 from .page_base import RecorderPageBase
 from .takes import Take
 from .teleprompter import SPEEDS
@@ -126,6 +127,9 @@ class RecorderSimplePage(RecorderPageBase):
         self.device_label = QLabel("")
         self.device_label.setProperty("role", "muted")
         lay.addWidget(self.device_label)
+        self.location = RecordingLocationBar()
+        self.location.changeRequested.connect(self.change_recording_folder)
+        lay.addWidget(self.location)
         lay.addLayout(self.error_slot)
 
         row = QHBoxLayout()
@@ -148,6 +152,8 @@ class RecorderSimplePage(RecorderPageBase):
         col.addStretch(1)
         row.addLayout(col, 1)
         lay.addLayout(row)
+        self.result_card = RecordingResultCard()
+        lay.addWidget(self.result_card)
 
         cap = QLabel(i18n.upper(i18n.t("recorder.vu.label")))
         cap.setProperty("role", "caps")
@@ -197,7 +203,7 @@ class RecorderSimplePage(RecorderPageBase):
         sep = QFrame()
         sep.setProperty("role", "divider")
         lay.addWidget(sep)
-        tt = QLabel(i18n.t("recorder.takes.title"))
+        tt = QLabel(i18n.t("recorder.recent.title"))
         tt.setProperty("role", "h2")
         lay.addWidget(tt)
         self.takes_box = QVBoxLayout()
@@ -385,6 +391,7 @@ class RecorderSimplePage(RecorderPageBase):
         if self.svc is None:
             return
         self.device_label.setText(self.device_line())
+        self.refresh_location()
         self.gate_switch.blockSignals(True)
         self.gate_switch.setChecked(self.svc.gate_enabled)
         self.gate_switch.blockSignals(False)
@@ -452,6 +459,7 @@ class RecorderSimplePage(RecorderPageBase):
             self.rows.append(row)
         self.takes_empty.setVisible(not takes)
         self.transcribe_btn.setEnabled(bool(takes) and self.svc.state != "recording")
+        self.refresh_location()
 
     def on_waveform(self, path: str) -> None:
         for r in self.rows:

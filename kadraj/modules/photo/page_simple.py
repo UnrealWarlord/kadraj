@@ -41,6 +41,7 @@ class PhotoSimplePage(PhotoPageBase):
         lay = QVBoxLayout(body)
         lay.setContentsMargins(0, 0, 8, 12)
         lay.setSpacing(14)
+        lay.addWidget(self.ai_panel)
         lay.addLayout(self.error_slot)
         # fikir
         card, cl = _card()

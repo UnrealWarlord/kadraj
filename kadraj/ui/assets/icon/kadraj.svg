@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <title>KADRAJ</title>
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1E2026"/>
+      <stop offset="1" stop-color="#0C0D10"/>
+    </linearGradient>
+  </defs>
+  <!-- Rounded tile: dark panel, so the gold mark reads on light and dark taskbars alike -->
+  <rect x="0" y="0" width="512" height="512" rx="112" ry="112" fill="url(#tile)"/>
+  <rect x="12" y="12" width="488" height="488" rx="100" ry="100" fill="none" stroke="#D4A24C" stroke-opacity="0.45" stroke-width="6"/>
+  <!-- Viewfinder mark: the same corner brackets and centre dot as kadraj.ui.widgets.lockup (24-unit grid) -->
+  <g transform="translate(56 56) scale(16.6667)" fill="none" stroke="#D4A24C" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3 8V4h4"/>
+    <path d="M17 4h4v4"/>
+    <path d="M21 16v4h-4"/>
+    <path d="M7 20H3v-4"/>
+    <circle cx="12" cy="12" r="3" fill="#D4A24C" stroke="none"/>
+  </g>
+  <!-- Brand signature: bottom-right, 60% opacity. tools/make_icons.py draws it only at 256 px and above. -->
+  <g id="signature" font-family="Instrument Serif" font-style="italic" font-size="26" text-anchor="end" fill="#E8E6E1" fill-opacity="0.6">
+    <text x="470" y="470">from İnsibağ</text>
+  </g>
+</svg>

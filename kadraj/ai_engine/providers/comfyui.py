@@ -1,15 +1,20 @@
 """Yerel ComfyUI: görsel üretme, ×2/×4 büyütme (upscale), fırçalı inpainting ve img2img (stil aktarımı) iş akışları.
 
 Akış: görseli ``/upload/image``'a yükle → iş akışını ``/prompt``'a gönder → ``/history/<id>`` yokla → ``/view`` ile çıktıyı indir.
-Çalışmıyorsa ``provider.local_down`` kartı (çökme yok). Model dosyaları ComfyUI tarafında kurulu olmalıdır.
+Çalışmıyorsa ``ai.local_down`` kartı (çökme yok). Model dosyaları ComfyUI tarafında kurulu olmalıdır: ``/object_info/CheckpointLoaderSimple``
+ile **kurulu** denetim noktaları okunur, ayarlı model yoksa kurulu olanlardan biri seçilir; hiç yoksa ``ai.comfy_no_model`` kartı çıkar.
+Kaynak: https://docs.comfy.org/development/comfyui-server/comms_routes (``/prompt`` doğrulama hatası → HTTP 400 ``{"error":…, "node_errors":…}``).
 """
 from __future__ import annotations
 
+import json
 import random
 import uuid
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
-from ...core.contracts import ProviderKind
+from ...core import i18n
+from ...core.contracts import PingResult, ProviderKind, SmartError
+from .. import aierrors
 from . import comfy_workflows as wf
 from .aicore import AIProvider, ImageResult, Usage, ai_err
 from .images import size_for
@@ -24,6 +29,58 @@ class ComfyUIProvider(AIProvider):
                          base_url="http://127.0.0.1:8188", ping_path="/system_stats", auth="none", settings=settings,
                          transport=transport, **kw)
 
+    # -- kurulu model dosyaları ---------------------------------------------------------------------------
+    def checkpoints(self, timeout: float = 5.0) -> List[str]:
+        """Kurulu denetim noktaları (``models/checkpoints``). Okunamazsa boş liste (çağıran özgün istekle devam eder)."""
+        try:
+            data = self.request_json("GET", "/object_info/CheckpointLoaderSimple", timeout=timeout)
+            names = data["CheckpointLoaderSimple"]["input"]["required"]["ckpt_name"][0]
+            return [str(n) for n in names] if isinstance(names, list) else []
+        except SmartError as err:
+            if err.code in ("ai.local_down", "ai.offline"):
+                raise
+            return []
+        except (KeyError, IndexError, TypeError):
+            return []
+
+    def resolve_checkpoint(self, explicit: Optional[str] = None) -> str:
+        chosen = explicit or self.setting("model")
+        if chosen:
+            return str(chosen)
+        names = self.checkpoints()
+        if not names:
+            raise aierrors.error_card("comfy_no_model", self.id, name=self.display_name)
+        return next((n for n in names if "xl" in n.lower()), names[0])
+
+    def ping_result(self, resp: Any, ms: float) -> PingResult:
+        names = self.checkpoints()
+        if not names:
+            err = aierrors.error_card("comfy_no_model", self.id, name=self.display_name)
+            return PingResult(False, round(ms, 1), i18n.t("ai.test.local_no_models", name=self.display_name), err)
+        shown = ", ".join(names[:3]) + ("…" if len(names) > 3 else "")
+        return PingResult(True, round(ms, 1), i18n.t("ai.test.local_models", name=self.display_name, models=shown))
+
+    @staticmethod
+    def _detail(err: SmartError) -> str:
+        """HTTP 400 gövdesinden ('error' + 'node_errors') kısa bir neden çıkarır."""
+        tech = err.technical or ""
+        start = tech.find("{")
+        try:
+            data = json.loads(tech[start:]) if start >= 0 else {}
+        except ValueError:
+            return tech[:160]
+        msg = ""
+        e = data.get("error")
+        if isinstance(e, Mapping):
+            msg = str(e.get("message") or e.get("type") or "")
+        elif e:
+            msg = str(e)
+        for node in (data.get("node_errors") or {}).values():
+            for item in (node.get("errors") or []) if isinstance(node, Mapping) else []:
+                msg = f"{item.get('message', '')} {item.get('details', '')}".strip() or msg
+                break
+        return (msg or tech)[:160]
+
     # -- düşük düzey -----------------------------------------------------------------------------------
     def upload(self, name: str, data: bytes, timeout: float = 30.0) -> str:
         res = self.request_json("POST", "/upload/image", timeout=timeout, files={"image": (name, data, "image/png")},
@@ -31,7 +88,12 @@ class ComfyUIProvider(AIProvider):
         return str(res.get("name") or name)
 
     def run(self, workflow: Mapping[str, Any], *, timeout: float = 30.0, max_wait: float = 300.0) -> List[bytes]:
-        sub = self.request_json("POST", "/prompt", timeout=timeout, json_body={"prompt": workflow, "client_id": uuid.uuid4().hex})
+        try:
+            sub = self.request_json("POST", "/prompt", timeout=timeout, json_body={"prompt": workflow, "client_id": uuid.uuid4().hex})
+        except SmartError as err:
+            if getattr(err, "status", 0) == 400:                          # doğrulama hatası: eksik model/düğüm vb.
+                raise ai_err("comfy", source=self.id, detail=self._detail(err), technical=err.technical) from None
+            raise
         pid = sub.get("prompt_id")
         if not pid:
             detail = str((sub.get("error") or {}).get("message") if isinstance(sub.get("error"), Mapping) else sub.get("error", ""))
@@ -70,8 +132,9 @@ class ComfyUIProvider(AIProvider):
     def generate(self, prompt: str, *, vault: Any = None, aspect: str = "1:1", seed: Optional[int] = None, n: int = 1,
                  negative: str = "", width: Optional[int] = None, height: Optional[int] = None, steps: int = 25, cfg: float = 7.0,
                  model: Optional[str] = None, **_: Any) -> ImageResult:
-        w, h = (width, height) if width and height else size_for(aspect, 1024, 8)
-        ckpt = model or self.model(CHECKPOINT)
+        ckpt = self.resolve_checkpoint(model)
+        xl = any(k in ckpt.lower() for k in ("xl", "flux", "sd3"))
+        w, h = (width, height) if width and height else size_for(aspect, 1024 if xl else 640, 8)
         images: List[bytes] = []
         s0 = self._seed(seed)
         for i in range(max(1, int(n))):
@@ -89,10 +152,10 @@ class ComfyUIProvider(AIProvider):
         """``mask``: **beyaz** = yeniden çizilecek alan (siyah/saydam = korunur)."""
         iname, mname = self.upload("kadraj_in.png", image), self.upload("kadraj_mask.png", mask)
         s = self._seed(seed)
-        return self._result(self.run(wf.inpaint(iname, mname, prompt, negative, s, steps, cfg, self.model(CHECKPOINT))), s)
+        return self._result(self.run(wf.inpaint(iname, mname, prompt, negative, s, steps, cfg, self.resolve_checkpoint())), s)
 
     def img2img(self, image: bytes, prompt: str, *, negative: str = "", seed: Optional[int] = None, steps: int = 25, cfg: float = 7.0,
                 strength: float = 0.6, **_: Any) -> ImageResult:
         name = self.upload("kadraj_in.png", image)
         s = self._seed(seed)
-        return self._result(self.run(wf.img2img(name, prompt, negative, s, steps, cfg, self.model(CHECKPOINT), strength)), s)
+        return self._result(self.run(wf.img2img(name, prompt, negative, s, steps, cfg, self.resolve_checkpoint(), strength)), s)

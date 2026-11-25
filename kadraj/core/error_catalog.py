@@ -91,6 +91,11 @@ _TR: Dict[str, Tuple[str, str, str, str]] = {
         "Video indirici beklenmedik bir hatayla durdu.",
         "Bağlantı, adres ya da indirici sürümü neden olmuş olabilir.",
         "Yeniden dene; sürerse ayarlardan indiriciyi güncelle."),
+    "downloader.generic": (
+        "Video indirilemedi",
+        "Video indirilemedi ve tam sebebi belirlenemedi.",
+        "Bağlantı, sitenin kendisi ya da bu videonun biçimi indiriciyle uyumsuz olabilir.",
+        "Bağlantıyı tarayıcıdan yeniden kopyalayıp dene; olmazsa kaliteyi ya da biçimi bir kademe değiştir."),
     "http.unauthorized": (
         "Hizmet anahtarın kabul edilmedi",
         "Sağlayıcı isteği yetkisiz buldu (401).",
@@ -199,6 +204,11 @@ _EN: Dict[str, Tuple[str, str, str, str]] = {
         "The video downloader stopped with an unexpected error.",
         "The link, the connection or the downloader version may be the cause.",
         "Try again; if it persists, update the downloader in settings."),
+    "downloader.generic": (
+        "The video could not be downloaded",
+        "The video could not be downloaded and the exact cause is unknown.",
+        "The link, the site, or this video's format may not work with the downloader.",
+        "Copy the link again from your browser and retry; if it fails, change the quality or format one step."),
     "http.unauthorized": (
         "Your service key was not accepted",
         "The provider rejected the request as unauthorized (401).",
@@ -493,6 +503,10 @@ RULES: Tuple[ErrorRule, ...] = tuple(sorted((
           actions=lambda e, c: (_settings("updates"), _retry())),
     _rule("ytdlp.generic", _m_ytdlp_generic, 190, retryable=True,
           actions=lambda e, c: (_retry(), _copy(_tech(e, c)))),
+    # İndirici genel yedeği: kaynak "downloader" ve özel kural eşleşmedi; ağ/izin/disk hataları yerleşik kartlara kalır
+    _rule("downloader.generic",
+          lambda e, c: c.get("source") == "downloader" and not isinstance(e, OSError) and not _transport(e, c),
+          450, retryable=True, actions=lambda e, c: (_retry(), _copy(_tech(e, c)))),
     # HTTP
     _rule("http.unauthorized", _m_401, 200, actions=lambda e, c: (_settings("ai"),)),
     _rule("http.forbidden", _m_403, 210),

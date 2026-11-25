@@ -22,6 +22,7 @@ from ...ui.theme.tokens import resolve
 from ...ui.widgets import Lockup, SquishyButton
 from ...ui.widgets.surface import page_surface_qss
 from .guide import GUIDE_HOSTS, GuideDialog
+from .keytest import KeyTestResult
 from .service import WHISPER_MODELS, KeyRow, LocalRuntime, initials
 from .strings import K
 
@@ -214,6 +215,8 @@ class SettingsSimplePage(ThemedMixin, QWidget):
         lay.addWidget(self.vault_banner)
         self.key_box = QVBoxLayout()
         lay.addLayout(self.key_box)
+        self.key_result = KeyTestResult(self.service, self.ctx)           # "Bağlantıyı test et" sonucu: sade Türkçe + adımlar
+        lay.addWidget(self.key_result)
         footer = QHBoxLayout()
         footer.addStretch(1)
         test_all = SquishyButton(i18n.t(K.BTN_TEST_ALL), variant="secondary")
@@ -284,7 +287,7 @@ class SettingsSimplePage(ThemedMixin, QWidget):
         frame, lay = _card(K.TOOLS_TITLE)
         row = QHBoxLayout()
         self.ytdlp_label = QLabel("")
-        self.ytdlp_update = SquishyButton(i18n.t(K.BTN_UPDATE), variant="secondary")
+        self.ytdlp_update = SquishyButton(i18n.t(K.UPDATE_NOW), variant="secondary")
         self.ytdlp_update.clicked.connect(self._update_ytdlp)
         row.addWidget(self.ytdlp_label, 1)
         row.addWidget(self.ytdlp_update)
@@ -296,7 +299,13 @@ class SettingsSimplePage(ThemedMixin, QWidget):
         row2.addWidget(self.ffmpeg_label, 1)
         row2.addWidget(how)
         lay.addLayout(row2)
-        note = QLabel(i18n.t(K.UPDATE_NOTE))
+        self.deno_label = QLabel("")
+        lay.addWidget(self.deno_label)
+        self.cb_auto_update = QCheckBox(i18n.t(K.AUTO_UPDATE))
+        self.cb_auto_update.setChecked(self.service.auto_update())
+        self.cb_auto_update.toggled.connect(self.service.set_auto_update)
+        lay.addWidget(self.cb_auto_update)
+        note = QLabel(i18n.t(K.UPDATE_STARTUP_NOTE))
         note.setProperty("role", "muted")
         note.setWordWrap(True)
         lay.addWidget(note)
@@ -342,6 +351,7 @@ class SettingsSimplePage(ThemedMixin, QWidget):
         _clear(self.key_box)
         for row in self.service.key_rows():
             self.key_box.addWidget(self._key_row(row))
+        self.key_result.refresh()
 
     def _reveal_text(self, row: KeyRow) -> str:
         if row.provider_id in self._revealed and row.has_key:
@@ -480,6 +490,7 @@ class SettingsSimplePage(ThemedMixin, QWidget):
         info = self.service.tool_info()
         self.ytdlp_label.setText(f"{i18n.t(K.TOOL_YTDLP)}: {info.ytdlp or i18n.t(K.TOOL_MISSING)}")
         self.ffmpeg_label.setText(f"{i18n.t(K.TOOL_FFMPEG)}: {info.ffmpeg or i18n.t(K.TOOL_MISSING)}")
+        self.deno_label.setText(f"{i18n.t(K.TOOL_DENO)}: {info.deno or i18n.t(K.TOOL_MISSING)}")
 
     # -- eylemler ----------------------------------------------------------
     def _say(self, text: str) -> None:

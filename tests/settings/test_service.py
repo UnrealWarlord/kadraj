@@ -13,8 +13,9 @@ from kadraj.storage.profiles import ProfileError
 
 from .fakes import FULL_KEY, FakeRun, FakeVault
 
+# 8 anahtarlı servis + video servisi (AI sağlayıcıları Ayarlar açılırken kurulur); OpenAI görsel, anahtarını OpenAI ile paylaştığı için ayrı satır olmaz
 EIGHT_KEY_PROVIDERS = {"anthropic", "openai_compat", "bfl_flux", "google_imagen", "elevenlabs",
-                       "pexels", "pixabay", "freesound"}
+                       "pexels", "pixabay", "freesound", "video"}
 
 
 # -- kasa ----------------------------------------------------------------------
@@ -131,20 +132,50 @@ def test_ffmpeg_version_detected_through_injected_runner(svc, monkeypatch):
     assert info.ffmpeg == "7.1" and info.ffmpeg_path == "/usr/bin/ffmpeg"
 
 
-def test_ytdlp_update_runs_as_a_job_and_succeeds(svc, ctx):
+class _FakeUpdater:
+    def __init__(self, report):
+        self.report, self.calls = report, 0
+
+    def run(self, progress=None, *, force=False, **_kw):
+        self.calls += 1
+        assert force is True                       # "Şimdi güncelle" süre sınırını yok sayar
+        if progress:
+            progress("yt-dlp indiriliyor…", 0.5)
+        return self.report
+
+
+def test_component_update_runs_as_a_job_and_succeeds(svc, ctx):
+    from kadraj.core.updater import Report
+    fake = _FakeUpdater(Report(updated=["yt-dlp"], current=["deno"]))
+    svc.updater_factory = lambda: fake
     job = svc.update_ytdlp()
     assert ctx.jobs.wait_idle(10000)
     done = ctx.jobs.get(job.id)
-    assert done.status.value == "done"
-    assert any("yt-dlp" in " ".join(c) for c in svc.run_cmd.calls)
+    assert done.status.value == "done" and fake.calls == 1
 
 
-def test_ytdlp_update_failure_becomes_a_failed_job(svc, ctx):
-    svc.run_cmd = FakeRun(pip_code=1, pip_out="network unreachable")
+def test_component_update_offline_gives_numbered_steps(svc, ctx):
+    from kadraj.core.updater import Report
+    svc.updater_factory = lambda: _FakeUpdater(Report(offline=True))
+    job = svc.update_components()
+    assert ctx.jobs.wait_idle(10000)
+    failed = ctx.jobs.get(job.id)
+    assert failed.status.value == "failed" and failed.error
+
+
+def test_component_update_error_becomes_a_failed_job(svc, ctx):
+    from kadraj.core.updater import Report
+    svc.updater_factory = lambda: _FakeUpdater(Report(errors=["yt-dlp: SHA-256 sağlaması uyuşmadı"]))
     job = svc.update_ytdlp()
     assert ctx.jobs.wait_idle(10000)
     failed = ctx.jobs.get(job.id)
     assert failed.status.value == "failed" and failed.error
+
+
+def test_auto_update_setting_defaults_on_and_persists(svc):
+    assert svc.auto_update() is True
+    svc.set_auto_update(False)
+    assert svc.auto_update() is False
 
 
 # -- klasör ve önbellek --------------------------------------------------------

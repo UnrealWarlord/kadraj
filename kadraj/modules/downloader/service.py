@@ -24,10 +24,11 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from PySide6.QtCore import QObject, Signal
 
-from ...core import i18n
+from ...core import components, i18n
 from ...core.contracts import SIMPLE_SAMPLE_RATE, Job, SmartError, Topics
 from ...core.errors import translate
 from ...storage import disk, folders
+from .errors import Collector, build as build_error, explain
 from .strings import K
 
 JOB_KIND = "download"
@@ -198,6 +199,7 @@ class FormatRow:
     tbr: float
     abr: float
     note: str
+    width: int = 0
 
     @property
     def has_video(self) -> bool:
@@ -225,6 +227,8 @@ class VideoInfo:
     is_playlist: bool
     entries: Tuple[EntryRef, ...]
     formats: Tuple[FormatRow, ...]
+    #: True → YouTube çözücüsü (Deno/EJS) eksik olduğundan yt-dlp kalite listesini kırpmış olabilir.
+    degraded: bool = False
 
     @property
     def is_youtube(self) -> bool:
@@ -381,6 +385,7 @@ def _format_row(f: Mapping[str, Any]) -> FormatRow:
         tbr=_num(f.get("tbr")),
         abr=_num(f.get("abr")),
         note=str(f.get("format_note") or ""),
+        width=int(_num(f.get("width"))),
     )
 
 
@@ -418,6 +423,84 @@ def info_from_raw(raw: Mapping[str, Any], url: str) -> VideoInfo:
     return VideoInfo(url=url, title=str(raw.get("title") or ""), extractor=extractor,
                      duration=_num(raw.get("duration")), max_height=int(max_height), subtitles=langs,
                      is_playlist=False, entries=(), formats=formats)
+
+
+# ---------------------------------------------------------------------------
+# Kalite uygunluğu (saf): sayfalar bunu okuyup olmayan kalite kartlarını devre dışı bırakır
+# ---------------------------------------------------------------------------
+#: Bir kalitenin "var" sayılması için gereken en küçük kenar: (yükseklik, genişlik). Geniş ekran (2.39:1) 4K'lar
+#: yükseklikte 2160'a varmaz; bu yüzden genişlik de sayılır (3840 genişlik = 4K).
+QUALITY_MIN: Dict[str, Tuple[int, int]] = {QUALITY_FAST: (720, 1280), QUALITY_BALANCED: (1080, 1920),
+                                           QUALITY_BEST: (2160, 3840)}
+
+
+@dataclass(frozen=True)
+class QualityState:
+    """Bir kalite kartının durumu. ``available=False`` → kart devre dışı olmalı."""
+    key: str                  # "fast" | "balanced" | "best"
+    target_height: int        # kartın adı: 720 / 1080 / 2160
+    available: bool           # videoda bu kalite (ya da daha yükseği) gerçekten var mı
+    actual_height: int        # bu kart seçilirse gerçekte inecek yükseklik (≤ hedef); 0 → bilinmiyor
+
+
+def _video_dims(info: VideoInfo) -> List[Tuple[int, int]]:
+    return [(f.height, f.width) for f in info.formats if f.has_video and f.height > 0]
+
+
+def quality_states(info: Optional[VideoInfo]) -> Tuple[QualityState, ...]:
+    """Üç kalite kartının gerçek durumu. Bilgi yoksa (``None``/liste/format listesi boş) hepsi uygun sayılır."""
+    dims = _video_dims(info) if info is not None and not info.is_playlist else []
+    out: List[QualityState] = []
+    for key in QUALITIES:
+        target = QUALITY_HEIGHT[key]
+        if not dims:
+            top = int(info.max_height) if info is not None and not info.is_playlist else 0
+            if info is not None and not info.is_playlist and top > 0:
+                avail = top >= QUALITY_MIN[key][0]
+                out.append(QualityState(key, target, avail, min(top, target)))
+            else:
+                out.append(QualityState(key, target, True, 0))
+            continue
+        min_h, min_w = QUALITY_MIN[key]
+        avail = any(h >= min_h or w >= min_w for h, w in dims)
+        under = [h for h, _w in dims if h <= target]
+        out.append(QualityState(key, target, avail, max(under) if under else min(h for h, _w in dims)))
+    return tuple(out)
+
+
+def available_qualities(info: Optional[VideoInfo]) -> Dict[str, bool]:
+    """``{"fast": True, "balanced": True, "best": False}``."""
+    return {s.key: s.available for s in quality_states(info)}
+
+
+def best_available_quality(info: Optional[VideoInfo]) -> str:
+    """Videoda var olan en yüksek kalite kartı; hiçbiri uygun değilse en düşüğü (``"fast"``)."""
+    ok = [s.key for s in quality_states(info) if s.available]
+    return ok[-1] if ok else QUALITY_FAST
+
+
+def fit_quality(info: Optional[VideoInfo], quality: str) -> str:
+    """Seçili kalite videoda yoksa en yakın uygun (daha düşük) kaliteye indirir."""
+    states = {s.key: s.available for s in quality_states(info)}
+    if states.get(quality, True):
+        return quality
+    order = list(QUALITIES)
+    lower = [k for k in reversed(order[:order.index(quality)]) if states.get(k)] if quality in order else []
+    return lower[0] if lower else best_available_quality(info)
+
+
+def engine_options() -> Dict[str, Any]:
+    """Gerçek ``YoutubeDL``'e eklenen motor seçenekleri: ffmpeg konumu, JS çalışma zamanı (Deno), EJS betikleri."""
+    opts: Dict[str, Any] = {}
+    loc = components.ffmpeg_location()
+    if loc:
+        opts["ffmpeg_location"] = loc
+    deno = components.deno_path()
+    if deno:
+        opts["js_runtimes"] = {"deno": {"path": deno}}
+    # EJS çözücü betikleri pakette (yt-dlp zipapp'ı / yt-dlp-ejs) yoksa yt-dlp bunları resmî GitHub'dan alabilsin.
+    opts["remote_components"] = ["ejs:github"]
+    return opts
 
 
 def _best(items: Sequence[FormatRow], pred: Callable[[FormatRow], bool],
@@ -611,18 +694,36 @@ class DownloaderService(QObject):
     def _ydl(self, opts: Dict[str, Any]) -> Any:
         if self.ydl_factory is not None:
             return self.ydl_factory(opts)
+        components.prepare_ytdlp()            # güncellenmiş yt-dlp (zipapp) varsa içe aktarmadan ÖNCE sys.path'e girer
         from yt_dlp import YoutubeDL          # tembel içe aktarma
-        return YoutubeDL(opts)
+        return YoutubeDL({**engine_options(), **opts})
 
     def fetch_info(self, url: str, *, playlist: bool = False) -> VideoInfo:
-        """Engelleyici çağrı (iş parçacığında çalıştırılır). Ağ yoksa istisna atar."""
-        with self._ydl(probe_options(playlist=playlist)) as ydl:
-            raw = ydl.extract_info(url, download=False)
-        if raw is None:
-            raise ValueError("bağlantıdan bilgi alınamadı")
-        return info_from_raw(raw, url)
+        """Engelleyici çağrı (iş parçacığında çalıştırılır). Hata ``SmartError`` olarak yükselir (sade neden + adımlar)."""
+        log = Collector()
+        try:
+            with self._ydl({**probe_options(playlist=playlist), "logger": log}) as ydl:
+                raw = ydl.extract_info(url, download=False)
+            if raw is None:
+                raise ValueError("bağlantıdan bilgi alınamadı")
+            info = info_from_raw(raw, url)
+        except Exception as exc:  # noqa: BLE001
+            raise self.translate_error(exc, url, log.warnings) from exc
+        if info.is_youtube and not info.is_playlist:
+            if not _video_dims(info):                                  # video biçimi hiç gelmedi → çözücü eksik
+                raise build_error("JS", "\n".join(log.warnings))
+            if log.degraded():
+                info = replace(info, degraded=True)
+        return info
 
-    def translate_error(self, exc: BaseException, url: str = "") -> SmartError:
+    def quality_options(self, info: Optional[VideoInfo] = None) -> Tuple[QualityState, ...]:
+        """Kalite kartlarının gerçek durumu (``QualityState``); ``info`` verilmezse son çözümlenen video."""
+        return quality_states(info if info is not None else self.info)
+
+    def translate_error(self, exc: BaseException, url: str = "", warnings: Sequence[str] = ()) -> SmartError:
+        card = explain(exc, warnings)
+        if card is not None:
+            return card
         return translate(exc, {"tool": _tool_for(exc), "stderr": str(exc), "url": url,
                                "source": "downloader"})
 
@@ -682,6 +783,20 @@ class DownloaderService(QObject):
         return rows
 
     # -- işleyici (iş parçacığı) -------------------------------------------
+    @staticmethod
+    def _without_ffmpeg(req: DownloadRequest, opts: Dict[str, Any]) -> Dict[str, Any]:
+        """FFmpeg bulunamadığında: ses çıkarma/kırpma/altyazı/kapak FFmpeg ister → açık ``SmartError``;
+        yalnızca görüntü+ses ise birleştirme gerektirmeyen tek dosyalı biçime düşülür (çözünürlük sınırlı olabilir)."""
+        needs = (req.mode == MODE_AUDIO or req.start > 0 or req.end is not None or req.options.subtitles
+                 or req.options.embed_thumbnail)
+        if needs:
+            raise build_error("FFMPEG", "ffmpeg bulunamadı")
+        cap = QUALITY_HEIGHT.get(req.quality, QUALITY_HEIGHT[QUALITY_BALANCED])
+        out = dict(opts)
+        out["format"] = f"best[height<={cap}]/best"
+        out.pop("merge_output_format", None)
+        return out
+
     def _handle_download(self, job: Job, jc: Any) -> Dict[str, Any]:
         req = DownloadRequest.from_payload(job.payload)
         out_dir = Path(req.output_dir).expanduser() if req.output_dir else self.default_output_dir()
@@ -705,6 +820,10 @@ class DownloaderService(QObject):
                 jc.report(0.97, i18n.t(K.PROGRESS_PROCESSING))
 
         opts = build_ydl_options(req, out_dir=out_dir, progress_hook=hook)
+        log = Collector()
+        opts["logger"] = log
+        if self.ydl_factory is None and not components.have("ffmpeg"):
+            opts = self._without_ffmpeg(req, opts)       # FFmpeg yok: mümkünse tek dosyalı biçime düş, değilse açık kart
         try:
             with self._ydl(opts) as ydl:
                 info = ydl.extract_info(req.url, download=True)
@@ -714,6 +833,6 @@ class DownloaderService(QObject):
         except SmartError:
             raise
         except Exception as exc:  # noqa: BLE001 — işleyici hatası SmartError'a çevrilir
-            raise self.translate_error(exc, req.url) from exc
+            raise self.translate_error(exc, req.url, log.warnings) from exc
         jc.report(1.0, "")
         return {"path": files[0] if files else "", "files": files, "folder": str(out_dir)}

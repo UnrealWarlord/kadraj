@@ -33,13 +33,26 @@ chmod 755 "$STAGE"
 cp -a "$SRC/KADRAJ" "$SRC/_internal" "$STAGE/"
 cp -a "$SRC/uninstall.sh" "$STAGE/"
 [ -f "$SRC/KURULUM.txt" ] && cp -a "$SRC/KURULUM.txt" "$STAGE/"
+[ -f "$SRC/THIRD_PARTY_NOTICES.md" ] && cp -a "$SRC/THIRD_PARTY_NOTICES.md" "$STAGE/"
 rm -rf "$APP_DIR"
 mv "$STAGE" "$APP_DIR"
 trap - EXIT
 
 ln -sfn "$APP_DIR/KADRAJ" "$LINK"
 
+# Simgeler: ~/.local/share/icons/hicolor/<n>x<n>/apps/kadraj.png (paketin içindeki kadraj-<n>.png dosyalarından).
+ICON_SRC="$APP_DIR/_internal/kadraj/ui/assets/icon"
+ICON_ROOT="$HOME/.local/share/icons/hicolor"
+for n in 16 24 32 48 64 128 256 512; do
+    if [ -f "$ICON_SRC/kadraj-$n.png" ]; then
+        mkdir -p "$ICON_ROOT/${n}x${n}/apps"
+        cp -f "$ICON_SRC/kadraj-$n.png" "$ICON_ROOT/${n}x${n}/apps/kadraj.png"
+    fi
+done
+command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache -q -t "$ICON_ROOT" >/dev/null 2>&1 || true
+
 # .desktop: Exec yolundaki % işaretleri iki katına çıkar, boşluklara karşı tırnak içine alınır.
+# StartupWMClass=kadraj: uygulama setDesktopFileName("kadraj") der; görev çubuğu bu girdiyi/simgeyi eşleştirir.
 EXEC_PATH="${APP_DIR//\%/%%}/KADRAJ"
 cat > "$DESKTOP" <<EOF
 [Desktop Entry]
@@ -47,7 +60,8 @@ Type=Application
 Name=KADRAJ
 Comment=Video, ses, fotoğraf ve dizi stüdyosu
 Exec="$EXEC_PATH"
-Icon=applications-multimedia
+Icon=kadraj
+StartupWMClass=kadraj
 Terminal=false
 Categories=AudioVideo;Video;
 EOF
@@ -57,7 +71,7 @@ command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$
 echo "Kuruldu."
 echo "  Başlatmak için: uygulama menüsünde \"KADRAJ\" ya da terminalde  kadraj"
 
-# --- uyarılar (kurulum bunlar olmadan da tamamlanır) ---------------------------------------------
+# --- uyarı (kurulum bunsuz da tamamlanır) ----------------------------------------------------------
 case ":$PATH:" in
     *":$BIN_DIR:"*) ;;
     *) echo
@@ -65,39 +79,5 @@ case ":$PATH:" in
        echo "       ya da şu satırı ~/.profile dosyasına ekleyin:  export PATH=\"\$HOME/.local/bin:\$PATH\"" ;;
 esac
 
-# Dağıtıma uygun kurulum komutunu seç.
-DISTRO=""
-if [ -r /etc/os-release ]; then
-    # shellcheck disable=SC1091
-    DISTRO="$(. /etc/os-release; echo " ${ID:-} ${ID_LIKE:-} ")"
-fi
-case "$DISTRO" in
-    *" arch "*|*" manjaro "*|*" cachyos "*) HINT="sudo pacman -S ffmpeg portaudio" ;;
-    *" fedora "*|*" rhel "*)                HINT="sudo dnf install portaudio ffmpeg-free   (tam FFmpeg için RPM Fusion: sudo dnf install ffmpeg)" ;;
-    *" debian "*|*" ubuntu "*)              HINT="sudo apt install ffmpeg libportaudio2" ;;
-    *)                                      HINT="dağıtımınızın paket yöneticisiyle 'ffmpeg' ve 'portaudio' (libportaudio2) paketlerini kurun" ;;
-esac
-
-have_lib() {   # have_lib libportaudio.so.2
-    local ldc="" c d
-    for c in "$(command -v ldconfig 2>/dev/null || true)" /sbin/ldconfig /usr/sbin/ldconfig; do
-        if [ -n "$c" ] && [ -x "$c" ]; then ldc="$c"; break; fi
-    done
-    if [ -n "$ldc" ] && "$ldc" -p 2>/dev/null | grep -q "$1"; then return 0; fi
-    for d in /usr/lib /usr/lib64 /lib /lib64 /usr/lib/x86_64-linux-gnu /usr/local/lib; do
-        compgen -G "$d/$1*" >/dev/null && return 0
-    done
-    return 1
-}
-
-MISSING=""
-command -v ffmpeg  >/dev/null 2>&1 || MISSING="$MISSING ffmpeg"
-command -v ffprobe >/dev/null 2>&1 || MISSING="$MISSING ffprobe"
-have_lib libportaudio.so.2 || MISSING="$MISSING libportaudio"
-if [ -n "$MISSING" ]; then
-    echo
-    echo "UYARI: şu sistem bileşenleri bulunamadı:$MISSING"
-    echo "       Video düzenleme (ffmpeg) ve ses kaydı (portaudio) bunlar olmadan çalışmaz."
-    echo "       Kurmak için:  $HINT"
-fi
+# FFmpeg, ffprobe, Deno, PortAudio ve libxcb-cursor pakete dahildir; sistemden bir şey kurmak gerekmez.
 exit 0

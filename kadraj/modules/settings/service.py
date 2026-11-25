@@ -25,7 +25,7 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from PySide6.QtCore import QObject, Signal
 
-from ...core import i18n
+from ...core import components, i18n
 from ...core.contracts import Job, PingResult, SmartError, Topics, UiMode
 from ...storage import cache, disk, folders, profiles
 from .strings import K
@@ -98,11 +98,8 @@ def install_hints() -> Tuple[Tuple[str, str], ...]:
 
 
 def _ytdlp_version() -> str:
-    try:
-        from yt_dlp.version import __version__   # tembel içe aktarma
-    except ImportError:
-        return ""
-    return str(__version__)
+    """Kullanılacak yt-dlp sürümü: güncellenmiş/paketle gelen zipapp ya da kurulu paket (``core/components.py``)."""
+    return components.ytdlp_version()
 
 
 def _default_run(args: Sequence[str], timeout: float) -> Tuple[int, str]:
@@ -159,6 +156,7 @@ class ToolInfo:
     ytdlp: str
     ffmpeg: str
     ffmpeg_path: str
+    deno: str = ""
 
 
 @dataclass(frozen=True)
@@ -186,6 +184,7 @@ class SettingsService(QObject):
         super().__init__()
         self.ctx: Any = None
         self._status: Dict[str, Tuple[str, Optional[float], str]] = {}
+        self._results: Dict[str, PingResult] = {}            # son "Bağlantıyı test et" sonuçları (sade Türkçe kart için)
         self._local: List[LocalRuntime] = []
         self._tools: Optional[ToolInfo] = None
         self._local_loaded = False
@@ -195,7 +194,15 @@ class SettingsService(QObject):
     # -- yaşam döngüsü -----------------------------------------------------
     def start(self, ctx: Any) -> None:
         self.ctx = ctx
+        # "Bağlantıyı test et" gerçek sağlayıcıyla (ucuz model/kredi listesi) ve sade Türkçe sonuçla çalışsın: Fotoğraf/Dizi sayfaları
+        # henüz açılmamış olsa bile AI sağlayıcıları kayıt defterine kurulur (idempotent; kasa/ağ'a dokunmaz).
+        try:
+            from ...ai_engine.providers.install import install_all
+            install_all(ctx.providers, settings=ctx.settings)
+        except Exception:  # noqa: BLE001 — AI paketi eksik/bozuksa Ayarlar yine açılır
+            pass
         ctx.jobs.register_handler(UPDATE_KIND, self._handle_ytdlp_update)
+        self._unsubs.append(ctx.bus.subscribe("components.update", lambda _p=None: self._safe_update()))
         self._unsubs.append(ctx.bus.subscribe(Topics.JOB_UPDATED, self._on_job_updated))
 
     def stop(self) -> None:
@@ -234,7 +241,9 @@ class SettingsService(QObject):
         return st.state, ""
 
     def key_providers(self) -> List[Any]:
-        return [p for p in self._providers().list() if p.needs_key and not p.local]
+        # anahtarını başka bir servisle paylaşan servis (ör. OpenAI görsel → OpenAI) ayrı satır olmaz: kasada tek kayıt, tek satır
+        return [p for p in self._providers().list()
+                if p.needs_key and not p.local and getattr(p, "key_id", p.id) == p.id]
 
     def model_of(self, provider_id: str) -> str:
         if provider_id == "whisper_local":
@@ -262,11 +271,13 @@ class SettingsService(QObject):
             raise ValueError(i18n.t(K.VAULT_EMPTY_KEY))
         self._vault().set_secret(provider_id, value)        # kasa açılamazsa SmartError
         self._status.pop(provider_id, None)
+        self._results.pop(provider_id, None)
         self.changed.emit("keys")
 
     def delete_key(self, provider_id: str) -> bool:
         removed = bool(self._vault().delete_secret(provider_id))
         self._status.pop(provider_id, None)
+        self._results.pop(provider_id, None)
         self.changed.emit("keys")
         return removed
 
@@ -284,6 +295,14 @@ class SettingsService(QObject):
         else:
             self._ping_worker(provider_id)
 
+    def test_results(self) -> Dict[str, PingResult]:
+        """Son bağlantı testi sonuçları (sağlayıcı kimliği → ``PingResult``). Hata kartı ``result.error``'dadır."""
+        return dict(self._results)
+
+    def clear_test_result(self, provider_id: str) -> None:
+        self._results.pop(provider_id, None)
+        self.changed.emit("keys")
+
     def test_all(self, *, background: bool = True) -> None:
         for row in self.key_rows():
             self.test_connection(row.provider_id, background=background)
@@ -297,6 +316,7 @@ class SettingsService(QObject):
         except Exception as exc:  # noqa: BLE001 — ping asla arayüzü düşürmez
             result = PingResult(False, None, str(exc), None)
         self._status[provider_id] = (led_state(result.ok), result.latency_ms, result.message)
+        self._results[provider_id] = result
         self.pingDone.emit(provider_id, result)
         self.changed.emit("keys")
 
@@ -426,34 +446,65 @@ class SettingsService(QObject):
             self._refresh_tools_worker()
 
     def _refresh_tools_worker(self) -> None:
-        exe = shutil.which("ffmpeg") or ""
+        exe = components.ffmpeg_path() or ""
         ffmpeg = ""
         if exe:
-            code, out = self._run([exe, "-version"], 5.0)
-            ffmpeg = parse_ffmpeg_version(out) if code == 0 else ""
-        self._tools = ToolInfo(_ytdlp_version(), ffmpeg, exe)
+            hit = components.find("ffmpeg")
+            if hit is not None and hit.version and hit.source in (components.SOURCE_UPDATED, components.SOURCE_BUNDLED):
+                ffmpeg = hit.version                                   # güncelleyici/paketleme sürümü yazdı
+            else:
+                code, out = self._run([exe, "-version"], 5.0)
+                ffmpeg = parse_ffmpeg_version(out) if code == 0 else ""
+        deno = components.find("deno")
+        self._tools = ToolInfo(_ytdlp_version(), ffmpeg, exe, (deno.version or components.probe_version("deno")) if deno else "")
         self._tools_loaded = True
         self.changed.emit("tools")
 
+    #: Testler için sahte güncelleyici fabrikası (``Updater``'ın ``run`` imzası). ``None`` → gerçek ``core.updater.Updater``.
+    updater_factory: Optional[Callable[[], Any]] = None
+
     def update_ytdlp(self) -> Job:
-        """yt-dlp'yi iş kuyruğunda pip ile günceller. Çalışan süreç yeniden başlatılana dek eski sürümü kullanır."""
+        """Eski ad; bütün bileşenleri (yt-dlp, FFmpeg, Deno) günceller — ``update_components``."""
+        return self.update_components()
+
+    def update_components(self) -> Job:
+        """"Şimdi güncelle": yt-dlp, FFmpeg ve Deno'yu iş kuyruğunda resmî kaynaklardan günceller (sağlama doğrulanır)."""
         if self.ctx is None:
             raise RuntimeError("Ayarlar servisi başlatılmadı")
-        if getattr(sys, "frozen", False):
-            raise ValueError(i18n.t(K.UPDATE_FROZEN))
         return self.ctx.jobs.submit(UPDATE_KIND, {}, i18n.t(K.UPDATE_TITLE), notify=True)
 
+    def auto_update(self) -> bool:
+        """"Açılışta bileşenleri güncelle" anahtarı (varsayılan açık)."""
+        return bool(self.settings.get("tools.auto_update", True))
+
+    def set_auto_update(self, on: bool) -> None:
+        self.settings.set("tools.auto_update", bool(on))
+
     def _handle_ytdlp_update(self, job: Job, jc: Any) -> Dict[str, Any]:
-        jc.report(0.1, "")
-        code, out = self._run([sys.executable, "-m", "pip", "install", "--upgrade", "yt-dlp"], UPDATE_TIMEOUT)
-        if code != 0:
+        from ...core import updater
+        jc.report(0.05, "")
+        runner = self.updater_factory() if self.updater_factory is not None else updater.Updater()
+        rep = runner.run(lambda text, frac: jc.report(0.05 + 0.9 * (frac or 0.0), text), force=True)
+        if rep.offline and not rep.updated and not rep.pending:
+            raise SmartError("tools.offline", i18n.t(K.UPDATE_OFFLINE_TITLE), i18n.t(K.UPDATE_OFFLINE_SUMMARY),
+                             cause=i18n.t(K.UPDATE_OFFLINE_CAUSE),
+                             steps=tuple(f"{n}. {i18n.t(getattr(K, f'UPDATE_OFFLINE_STEP{n}'))}" for n in (1, 2)),
+                             retryable=True, source="settings")
+        if rep.errors:
             raise SmartError("tools.update_failed", i18n.t(K.UPDATE_FAILED_TITLE),
                              i18n.t(K.UPDATE_FAILED_SUMMARY), cause=i18n.t(K.UPDATE_FAILED_CAUSE),
-                             steps=(i18n.t(K.UPDATE_FAILED_STEP),), technical=out[-800:],
-                             retryable=True, source="settings")
+                             steps=(f"1. {i18n.t(K.UPDATE_FAILED_STEP)}",
+                                    f"2. {i18n.t(K.UPDATE_FAILED_STEP2)}"),
+                             technical="; ".join(rep.errors)[-800:], retryable=True, source="settings")
         self._tools = None
         jc.report(1.0, "")
-        return {"output": out[-400:]}
+        return {"updated": rep.updated, "pending": rep.pending, "current": rep.current}
+
+    def _safe_update(self) -> None:
+        try:
+            self.update_components()
+        except Exception:  # noqa: BLE001 — kart düğmesi uygulamayı düşürmesin
+            pass
 
     def _on_job_updated(self, job: Any) -> None:
         if getattr(job, "kind", "") == UPDATE_KIND and getattr(job, "finished", False):

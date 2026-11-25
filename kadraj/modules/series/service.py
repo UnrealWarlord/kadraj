@@ -16,6 +16,7 @@ from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
 
 from ...ai_engine import aistrings
 from ...ai_engine import analytics
+from ...ai_engine.access import AIAccess, ServiceStatus
 from ...ai_engine.nodes.executor import Executor, Run, validate_raw
 from ...ai_engine.nodes.graph import Graph, default_flow
 from ...ai_engine.pipeline import assembly, director, quota
@@ -26,7 +27,7 @@ from ...ai_engine.pipeline.production import Producer
 from ...ai_engine.providers.aicore import ai_err
 from ...ai_engine.providers.install import install_all
 from ...core import i18n
-from ...core.contracts import Job, JobStatus, ProviderKind, SmartError, Topics
+from ...core.contracts import Job, JobStatus, PingResult, ProviderKind, SmartError, Topics
 from ...core.errors import translate
 from ...storage.folders import folder_for
 
@@ -58,6 +59,8 @@ class SeriesService(QObject):
     jobChanged = Signal(object)
     assembled = Signal(dict)
     graphChanged = Signal()                # düğüm grafiği değişti
+    aiChanged = Signal()                   # AI servis durumu değişti (durum çubuğu / kurulum kartı yeniler)
+    _local_done = Signal(object)
     runFinished = Signal(object)           # Run (düğüm akışı / tek düğüm / matris)
     _async_done = Signal(object, object, object)
     _persist = Signal()                    # iş parçacığından gelen değişiklikleri ana iş parçacığında kaydet
@@ -67,6 +70,9 @@ class SeriesService(QObject):
         self.ctx = ctx
         self.machine = PipelineMachine(SeriesProject(), on_change=lambda _p: self._persist.emit())
         self.gateway: Optional[AIGateway] = None
+        self.access: Optional[AIAccess] = None
+        self.local_up: Dict[str, bool] = {}
+        self._last_op: Optional[tuple] = None
         self.last_error: Optional[SmartError] = None
         self._pool = QThreadPool(self)
         self._pool.setMaxThreadCount(2)
@@ -78,6 +84,7 @@ class SeriesService(QObject):
         self.executor: Optional[Executor] = None
         self.runs: List[Run] = []
         self._async_done.connect(self._finish_async)
+        self._local_done.connect(self._on_local)
         self._persist.connect(self._save)
 
     # -- yaşam döngüsü ---------------------------------------------------------------------------------------
@@ -86,6 +93,8 @@ class SeriesService(QObject):
         i18n.register_strings(aistrings.STRINGS)
         install_all(ctx.providers, settings=ctx.settings)
         self.gateway = AIGateway(ctx.providers, ctx.vault, ctx.settings, db=lambda: ctx.project.db if ctx.project.is_open else None)
+        self.gateway.local_up = self.local_up
+        self.access = AIAccess(ctx.providers, ctx.vault, ctx.settings)
         ctx.jobs.register_handler(JOB_PRODUCE, self._run_produce)
         self._unsubs += [ctx.bus.subscribe(Topics.JOB_UPDATED, self._on_job),
                          ctx.bus.subscribe(Topics.PROJECT_OPENED, lambda _p: self.load()),
@@ -95,6 +104,45 @@ class SeriesService(QObject):
         except Exception:
             pass
         self.load()
+        self.refresh_local()
+
+    # -- AI servis durumu / kurulum ---------------------------------------------------------------------------
+    def refresh_local(self) -> None:
+        """Yerel servisleri (Ollama, ComfyUI) arka planda yoklar; kapalıysa zincirde denenmez, durum çubuğu "Yerel servis kapalı" der."""
+        access = self.access
+        if access is None:
+            return
+
+        def probe() -> Dict[str, str]:
+            return access.probe_local(2.0)
+        self._pool.start(_Task(probe, lambda res, err: self._local_done.emit(res if err is None else {})))
+
+    def _on_local(self, res: Dict[str, str]) -> None:
+        if self.access is not None:
+            self.access.set_local_state(res)
+            self.local_up.update(self.access.local_up_map())
+        self.aiChanged.emit()
+
+    def ai_status(self, kind: str) -> ServiceStatus:
+        return self.access.status(kind) if self.access is not None else ServiceStatus(kind, "no_key")
+
+    def connect_provider(self, provider_id: str, secret: str, on_done: Callable[[PingResult], None]) -> None:
+        """Kurulum kartı: anahtarı kasaya yaz + tek ucuz gerçek çağrı yap (arka planda). Anahtar bellekte tutulmaz, loglanmaz."""
+        access = self.access
+        if access is None:
+            on_done(PingResult(False, None, i18n.t("ai.err.no_llm.summary"), ai_err("no_llm")))
+            return
+
+        def done(res: PingResult) -> None:
+            self.aiChanged.emit()
+            on_done(res)
+        self.run_async(lambda: access.save_and_test(provider_id, secret), done, remember=False)
+
+    def retry_last(self) -> None:
+        """Hata kartındaki "Yeniden dene": son arka plan işini aynen yeniden çalıştırır."""
+        if self._last_op is not None:
+            fn, on_done = self._last_op
+            self.run_async(fn, on_done)
 
     def stop(self) -> None:
         for u in self._unsubs:
@@ -171,7 +219,9 @@ class SeriesService(QObject):
     def busy(self) -> bool:
         return self._busy > 0
 
-    def run_async(self, fn: Callable[[], Any], on_done: Callable[[Any], None]) -> None:
+    def run_async(self, fn: Callable[[], Any], on_done: Callable[[Any], None], *, remember: bool = True) -> None:
+        if remember:
+            self._last_op = (fn, on_done)
         self._busy += 1
         self.busyChanged.emit(True)
         self._pool.start(_Task(fn, lambda res, err: self._async_done.emit(on_done, res, err)))

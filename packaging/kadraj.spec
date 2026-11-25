@@ -9,6 +9,7 @@ Windows:  pyinstaller packaging/kadraj.spec --noconfirm       (GitHub Actions: .
   Windows: KADRAJ.exe (konsolsuz, kullanıcının çalıştırdığı) + KADRAJ-console.exe (aynı uygulama, konsollu:
            `KADRAJ-console.exe --selftest` çıktısı CI günlüğünde görünsün diye) + _internal/
 """
+import glob
 import os
 import sys
 
@@ -21,9 +22,39 @@ IS_WINDOWS = sys.platform == "win32"
 # Modül kayıt defteri (kadraj/core/registry.py) modülleri pkgutil + importlib ile *çalışma zamanında* bulur;
 # PyInstaller bu dinamik içe aktarmaları göremez → tüm kadraj alt paketleri açıkça toplanır.
 hiddenimports = collect_submodules("kadraj")
+# yt-dlp eklentileri (youtube/jsc/_builtin ...) importlib ile çalışma zamanında yüklenir; PyInstaller göremez.
+hiddenimports += collect_submodules("yt_dlp")
 
 # Gömülü yazı tipleri (kadraj/ui/assets/fonts) ve istem uyarlayıcı verileri (prompt_adapter/data/*.json).
-datas = collect_data_files("kadraj")
+datas = collect_data_files("kadraj") + collect_data_files("yt_dlp")
+try:
+    datas += collect_data_files("yt_dlp_ejs")           # YouTube JS çözücü betikleri (pip paketi)
+    hiddenimports += collect_submodules("yt_dlp_ejs")
+except Exception:                                       # paket kurulu değilse: resmî zipapp ya da ejs:github yedeği
+    pass
+
+# --- uygulamayla gelen harici bileşenler: ffmpeg, ffprobe, deno, yt-dlp (+ versions.json) → <paket>/tools/ -------------
+# Klasörü `python -m kadraj.core.updater --seed <klasör>` üretir (sağlamaları doğrulanmış resmî sürümler). Derleme
+# betikleri/CI KADRAJ_TOOLS_DIR'i verir; yoksa uyarılır ve paket bileşensiz (yalnız geliştirme için) üretilir.
+TOOLS_DIR = os.environ.get("KADRAJ_TOOLS_DIR", "")
+if TOOLS_DIR and os.path.isdir(TOOLS_DIR):
+    for _f in sorted(os.listdir(TOOLS_DIR)):
+        if os.path.isfile(os.path.join(TOOLS_DIR, _f)):
+            datas.append((os.path.join(TOOLS_DIR, _f), "tools"))
+else:
+    print("UYARI: KADRAJ_TOOLS_DIR verilmedi; ffmpeg/ffprobe/deno/yt-dlp pakete GİRMİYOR (yalnız geliştirme derlemesi).")
+datas.append((os.path.join(ROOT, "THIRD_PARTY_NOTICES.md"), "."))
+datas.append((os.path.join(ROOT, "LICENSE"), "."))
+
+# --- Linux: ctypes ile yüklenen sistem kütüphaneleri PyInstaller'ın bağımlılık çözümlemesinde görünmez → açıkça eklenir.
+#     libportaudio (mikrofon kaydı) ve libxcb-cursor (X11'de Qt 6.5+ xcb eklentisi). Bulunamazsa derleme DÜŞER.
+extra_binaries = []
+if sys.platform.startswith("linux"):
+    for _lib in ("libportaudio.so.2", "libxcb-cursor.so.0"):
+        _hits = [p for d in ("/usr/lib64", "/usr/lib/x86_64-linux-gnu", "/lib64", "/usr/lib") for p in glob.glob(os.path.join(d, _lib))]
+        if not _hits:
+            raise SystemExit(f"HATA: {_lib} derleme makinesinde bulunamadı (Dockerfile.linux'a ekleyin).")
+        extra_binaries.append((os.path.realpath(_hits[0]), "."))
 
 # Uygulamanın hiç içe aktarmadığı şeyler: paketi küçültür. Uygulama yalnızca
 # QtCore / QtGui / QtWidgets / QtSvg / QtMultimedia kullanır (grep ile doğrulandı).
@@ -53,7 +84,7 @@ excludes = [
 a = Analysis(
     [os.path.join(ROOT, "main.py")],
     pathex=[ROOT],
-    binaries=[],
+    binaries=extra_binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
@@ -98,7 +129,7 @@ def make_exe(name, console):
         strip=False,
         upx=False,
         console=console,
-        icon="NONE" if IS_WINDOWS else None,   # özel ikon yok; PyInstaller'ın varsayılan yılan ikonu da konmasın
+        icon=os.path.join(ROOT, "kadraj", "ui", "assets", "icon", "kadraj.ico") if IS_WINDOWS else None,
     )
 
 

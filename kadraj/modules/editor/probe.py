@@ -10,15 +10,13 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from ...core import components
 from .errors import smart
 
 
 def find_binary(name: str) -> Optional[str]:
-    """``KADRAJ_FFMPEG`` / ``KADRAJ_FFPROBE`` ortam değişkeni önceliklidir; yoksa PATH."""
-    env = os.environ.get(f"KADRAJ_{name.upper()}")
-    if env and Path(env).exists():
-        return env
-    return shutil.which(name)
+    """Bulucu ``core/components.py``'dir: ortam değişkeni → ``~/.kadraj/tools`` → paketle gelen → PATH."""
+    return components.path_of(name)
 
 
 def require_ffmpeg() -> str:

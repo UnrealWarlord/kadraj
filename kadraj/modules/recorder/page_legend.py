@@ -19,6 +19,7 @@ from ...core.contracts import Job
 from ...ui.widgets.squishy_button import SquishyButton
 from .devices import SAMPLE_RATES
 from .dsp import FLOOR_DB, LevelAnalysis
+from .location import RecordingLocationBar, RecordingResultCard
 from .page_base import RecorderPageBase
 from .teleprompter import MAX_FONT, MAX_WPM, MIN_FONT, MIN_WPM, Prompter
 from .widgets import (BigRecordButton, GRBar, PrompterView, StatusLamp, StereoMeter, WaveformView, format_timecode)
@@ -274,7 +275,12 @@ class RecorderLegendPage(RecorderPageBase):
 
     # ------------------------------------------------------------------------------------------------ takes
     def _build_takes(self) -> QFrame:
-        f, lay = _panel("TAKES")
+        f, lay = _panel(i18n.upper(i18n.t("recorder.recent.title")))
+        self.location = RecordingLocationBar()
+        self.location.changeRequested.connect(self.change_recording_folder)
+        lay.addWidget(self.location)
+        self.result_card = RecordingResultCard()
+        lay.addWidget(self.result_card)
         self.table = QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels([i18n.upper(i18n.t(f"recorder.legend.col.{c}"))
                                               for c in ("take", "duration", "rate", "wave", "srt", "studio")])
@@ -444,6 +450,7 @@ class RecorderLegendPage(RecorderPageBase):
         svc = self.svc
         if svc is None:
             return
+        self.refresh_location()
         self.header_label.setText(i18n.t("recorder.legend.header", rate=f"{svc.sample_rate / 1000:g}"))
         self.header_label.setMinimumWidth(self.header_label.sizeHint().width() + 6)      # kısaltılmasın
         self.device_combo.blockSignals(True)
@@ -553,6 +560,7 @@ class RecorderLegendPage(RecorderPageBase):
         has = bool(takes) and svc.state != "recording"
         self.transcribe_btn.setEnabled(has)
         self.master_btn.setEnabled(has)
+        self.refresh_location()
 
     def on_waveform(self, path: str) -> None:
         if self.svc is None:

@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QFrame, QLabel, QVBoxLayout, QWidget
 from ...core import i18n
 from ...core.contracts import Job, JobStatus, SmartAction, SmartError, Topics
 from ...ui.widgets.smart_error_card import SmartErrorCard
+from .location import RecordingLocationBar, RecordingResultCard
 from .service import JOB_MASTER, JOB_TRANSCRIBE, RecorderService
 from .takes import Take
 
@@ -26,6 +27,9 @@ class RecorderPageBase(QWidget):
         self.error_slot = QVBoxLayout()
         self.error_slot.setContentsMargins(0, 0, 0, 0)
         self.job_text = ""
+        # alt sınıflar kurar: kayıt yeri çubuğu ve son kayıt kartı (location.py)
+        self.location: Optional[RecordingLocationBar] = None
+        self.result_card: Optional[RecordingResultCard] = None
 
     # -- bağlanma -----------------------------------------------------------------------------------------------------
     def connect_service(self) -> None:
@@ -131,9 +135,33 @@ class RecorderPageBase(QWidget):
             return
         try:
             if self.svc.state == "recording":
-                self.svc.stop_recording()
+                take = self.svc.stop_recording()
+                self.show_result(take)
             else:
                 self.clear_error()
+                self.hide_result()
                 self.svc.start_recording()
+                self.refresh_location()
         except SmartError:
             pass                                            # servis errorRaised yayınladı; kart zaten gösterildi
+
+    # -- kayıt yeri ve son kayıt ----------------------------------------------------------------------------------------
+    def refresh_location(self) -> None:
+        """Kayıt yeri çubuğunu servisin o anki çıktı klasörüyle eşitler (proje açılınca/kapanınca da değişir)."""
+        if self.svc is not None and self.location is not None:
+            self.location.set_folder(self.svc.output_folder())
+
+    def show_result(self, take: Optional[Take]) -> None:
+        if take is None or self.result_card is None:
+            return
+        self.result_card.set_take(take, self.fmt_duration(take.duration_s))
+        self.result_card.show()
+        self.result_card.fit_height()
+
+    def hide_result(self) -> None:
+        if self.result_card is not None:
+            self.result_card.hide()
+
+    def change_recording_folder(self) -> None:
+        """"Değiştir": kayıt yeri proje klasörüne bağlı; seçim Ayarlar'da yapılır."""
+        self.ctx.bus.emit(Topics.NAVIGATE, {"module": "settings"})

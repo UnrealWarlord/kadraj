@@ -11,11 +11,13 @@ LLM_PER_MTOK: Dict[str, tuple] = {
     "claude-opus-5-5": (4.0, 20.0), "claude-opus-5": (5.0, 25.0), "claude-opus-4": (5.0, 25.0),
     "claude-sonnet-5": (2.0, 10.0), "claude-sonnet-4": (3.0, 15.0),
     "claude-haiku-5": (0.10, 0.50), "claude-haiku-4": (1.0, 5.0), "claude-fable": (8.0, 40.0),
+    "gpt-6.2-astra": (8.0, 40.0), "gpt-6.2-sol": (2.0, 10.0), "gpt-6.1-terra": (1.0, 5.0), "gpt-6-luna": (0.10, 0.50),   # developers.openai.com/api/docs/models
     "gpt-4o-mini": (0.15, 0.60), "gpt-4o": (2.5, 10.0), "gpt-4.1": (2.0, 8.0), "gpt-5": (1.25, 10.0),
 }
 IMAGE_PER_IMAGE: Dict[str, float] = {
     "flux-pro-1.1": 0.04, "flux-pro": 0.05, "flux-dev": 0.025, "flux-kontext": 0.04,
     "imagen-4": 0.04, "imagen-3": 0.03, "dall-e-3": 0.04, "gpt-image-1": 0.04,
+    "gpt-image-2": 0.04, "gemini-": 0.04, "flux-2": 0.04,            # tahmin (fatura sağlayıcıdadır); fiyat sayfaları değişken
 }
 TTS_PER_CHAR = 0.00030            # ElevenLabs ~ $0.30 / 1k karakter (plana göre değişir)
 SFX_PER_SECOND = 0.01

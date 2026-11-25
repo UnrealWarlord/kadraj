@@ -35,3 +35,22 @@ Kullanıcı, thread'lerden gelen karar sorularında önerilen seçeneğin koordi
 | 8a | Haiku | Kritik prompt alanları: konu, ışık, stil, oran; açı/lens/ruh hali/negatifler isteğe bağlı ama soruları listelenir |
 | 8a | Haiku | Ortak stil kütüphanesi (8 stil) + model başına negatif/parametre dosyaları; stok sağlayıcılar için ortak `providers/stock.py` |
 | 8a | Haiku | Kullanıcının Türkçe metni 8a'da çevrilmez (LLM yok); çeviri 8b'de LLM varsa yapılır |
+
+## Bileşenler (FFmpeg, Deno, yt-dlp) — "kutudan çıktığı gibi çalışsın"
+
+| # | Konu | Seçilen | Neden |
+|---|---|---|---|
+| B1 | Açılışta ağ kuralı | **Eski "açılışta ağa çıkılmaz" kuralı kalktı.** Açılışta (splash) yt-dlp, FFmpeg ve Deno için sürüm denetimi yapılır; yalnızca kodda yazılı resmî GitHub sürümleri, yalnızca HTTPS, her dosya SHA-256 ile doğrulanır, kısa zaman aşımı, ağ yoksa sessiz atlama. Ayarlar → Araçlar'da "Açılışta bileşenleri güncelle" anahtarı (varsayılan açık), "Şimdi güncelle" düğmesi. `--selftest` ve testlerde kapalı | Kullanıcı kurulumdan sonra hiçbir şey elle kurmak/güncellemek istemiyor; YouTube eski yt-dlp'yi sık kırıyor, gömülü bir yt-dlp kendini güncelleyemiyor |
+| B2 | Arama sırası | `core/components.py`: env (`KADRAJ_FFMPEG/FFPROBE/DENO/YTDLP`) → `~/.kadraj/tools/` (güncellenmiş) → pakete gömülü `tools/` → sistem PATH. Başka hiçbir yerde `shutil.which` yok | Tek yerden doğru ikili; güncellenmiş kopya gömülünün üstüne çıkar, bozulursa geri alınır (`.prev/`) |
+| B3 | Güncelleme biçimi | yt-dlp: resmî zipapp (`sys.path`'e eklenir, içe aktarmadan önce) · FFmpeg: yalnızca **sürüm dalı** (9.0 → 9.1) değişince indirilir, günlük yeniden derlemeler değil · Deno: sürüm değişince. Küçükler (yt-dlp) splash'te, büyükler (FFmpeg, Deno) arka planda; kullanımda olan dosya (Windows) bir sonraki açılışta konur | Splash uzun bloklanmaz ("Atla" düğmesi); atomik `os.replace`, önce çalıştırılarak denenir |
+| B4 | FFmpeg derlemesi | **GPL** (BtbN, sürüm dalı derlemesi), LGPL değil | Düzenleyici CPU H.264/H.265 (`libx264`/`libx265`) ve vekil dosyalar için bunlara ihtiyaç duyuyor; LGPL derlemede yok → dışa aktarma "kutudan çıktığı gibi" çalışmazdı. FFmpeg ayrı süreç olarak çalışır (kod bağlanmaz); kaynak bağlantısı `THIRD_PARTY_NOTICES.md`'de. Tek sabit: `core/updater.py::FFMPEG_VARIANT` |
+| B5 | İndirici hataları | Hiçbir hata yalnızca "Olmadı" demez: sade neden + numaralı adımlar + eylem ("Bileşenleri şimdi güncelle" → `components.update`, "Araçlar bölümünü aç") | Kullanıcı teknik bilgiye sahip değil |
+| B6 | Gerçek indirme sınaması | yt-dlp'nin kendi test videosu `BaW_jenozKc` artık YouTube'da "unavailable"; sınama `dQw4w9WgXcQ` ile yapıldı (en iyi ≤1080p + birleştirme + ffprobe) | Test videosu kaldırılmış; uygulamanın hatası değil |
+
+## Koordinatör kararları (v1.0.4)
+
+| # | Konu | Seçilen | Neden |
+|---|---|---|---|
+| 9 | FFmpeg derlemesi (B4) | Sonnet'in seçtiği **GPL** derlemesi onaylandı | LGPL derlemede `libx264`/`libx265` yok; CPU'da H.264/H.265 dışa aktarma ve vekil dosya çalışmazdı. FFmpeg ayrı süreç olarak çalışır, uygulama kodu MIT kalır; lisans ve kaynak bağlantısı `THIRD_PARTY_NOTICES.md`'de |
+| 10 | Uygulama ikonu ve marka kuralı | Vizör işareti; "from İnsibağ" imzası yalnız ≥256 px boyutlarda, sağ altta, düşük opaklıkta | 16–128 px'te imza okunmaz, yalnız gürültü olur; büyük boyutlarda kural korunur |
+| 11 | Anthropic `temperature` (API `2026-10-21`) | Bu API sürümünde `temperature` hiçbir modele gönderilmez; yalnız Ayarlar'dan eski sürüme dönülürse eski modellerde gönderilir | `2026-10-21` sürümünde örnekleme parametreleri her modelde 400 verir; eski bir model seçildiğinde istek düşüyordu |

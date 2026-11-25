@@ -125,6 +125,8 @@ TR: Dict[str, str] = {
     "splash.step_ytdlp": "İndirme aracı kontrol ediliyor…",
     "splash.step_ai": "Yerel yapay zekâ aranıyor…",
     "splash.step_ready": "Hazır!",
+    "splash.update_check": "Bileşenler denetleniyor…",
+    "splash.skip": "Atla",
     # --- onay ---
     "consent.title": "Kullanım ve gizlilik",
     "consent.p1": "Bu uygulama bilgisayarında yerel çalışır. Düzenleme, ses kaydı ve proje yönetimi internet olmadan da çalışır.",
@@ -455,6 +457,8 @@ EN: Dict[str, str] = {
     "splash.step_ytdlp": "Checking the downloader…",
     "splash.step_ai": "Looking for local AI…",
     "splash.step_ready": "Ready!",
+    "splash.update_check": "Checking components…",
+    "splash.skip": "Skip",
     "consent.title": "Usage and privacy",
     "consent.p1": "This app runs locally on your computer. Editing, audio recording and project management work without the internet.",
     "consent.p2": "It reaches the network only when you ask it to (for example downloading a video or connecting to an AI service). Nothing is sent automatically.",

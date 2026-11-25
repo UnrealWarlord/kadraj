@@ -65,6 +65,7 @@ class SeriesSimplePage(SeriesPageBase):
         lay.addLayout(head)
         self.stage_bar = StageBar()
         lay.addWidget(self.stage_bar)
+        lay.addWidget(self.ai_panel)
         lay.addLayout(self.error_slot)
         self.resume_card, rl = _card()
         self.resume_text = _h2("")

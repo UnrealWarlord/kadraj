@@ -13,6 +13,8 @@
 #   KADRAJ-<sürüm>-linux-x86_64.tar.gz       (+ .sha256)
 #   KADRAJ-<sürüm>-windows-x64-setup.exe     (+ .sha256)
 # <sürüm>, kadraj/version.py içinden okunur.
+# Her iki paket de FFmpeg, ffprobe, Deno ve yt-dlp'yi içerir (kullanıcı hiçbir şey kurmaz); bunlar derleme sırasında
+# resmî kaynaklardan SHA-256 doğrulamasıyla indirilir (python -m kadraj.core.updater --seed).
 name: Sürüm paketleri
 
 on:
@@ -138,14 +140,18 @@ jobs:
           Get-Content requirements.txt | Where-Object { $_ -notmatch '^\s*(pytest|pytest-qt)([<>=~!;\s]|$)' } | Set-Content $req
           python -m pip install -r $req "pyinstaller==${{ steps.meta.outputs.pyinstaller }}" "pyinstaller-hooks-contrib==${{ steps.meta.outputs.hooks }}"
 
-      - name: PyInstaller ile paketle
-        run: python -m PyInstaller packaging/kadraj.spec --noconfirm --clean
-
-      - name: FFmpeg kur (selftest'in video bölümü için; olmazsa o bölüm atlanır)
-        continue-on-error: true
+      # Kullanıcı hiçbir şey kurmasın: ffmpeg, ffprobe, deno ve yt-dlp pakete girer. Kaynaklar kodda yazılı resmî GitHub
+      # sürümleridir (core/updater.py); her dosya yayımlanan SHA-256 ile doğrulanır, uyuşmazsa iş düşer.
+      - name: Bileşenleri indir (FFmpeg, ffprobe, Deno, yt-dlp; SHA-256 doğrulamalı)
         run: |
-          if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) { choco install ffmpeg -y --no-progress }
-          ffmpeg -version | Select-Object -First 1
+          python -B -m kadraj.core.updater --seed build\tools
+          if ($LASTEXITCODE -ne 0) { throw "Bileşenler indirilemedi ya da doğrulanamadı (çıkış kodu $LASTEXITCODE)" }
+          Get-ChildItem build\tools | Format-Table Name, Length
+
+      - name: PyInstaller ile paketle
+        env:
+          KADRAJ_TOOLS_DIR: ${{ github.workspace }}\build\tools
+        run: python -m PyInstaller packaging/kadraj.spec --noconfirm --clean
 
       # KADRAJ.exe konsolsuzdur (çıktısı görünmez); aynı uygulamanın konsollu kardeşi KADRAJ-console.exe çıktıyı verir.
       - name: Paketlenmiş uygulamanın selftest'i (kapı)
@@ -196,9 +202,13 @@ jobs:
 
           $p = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/SP-","/DIR=$dir" -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "Kurulum başarısız (çıkış kodu $($p.ExitCode))" }
-          foreach ($f in "KADRAJ.exe","KADRAJ-console.exe","unins000.exe") {
+          foreach ($f in "KADRAJ.exe","KADRAJ-console.exe","unins000.exe","THIRD_PARTY_NOTICES.md",
+                         "_internal\tools\ffmpeg.exe","_internal\tools\ffprobe.exe","_internal\tools\deno.exe","_internal\tools\yt-dlp") {
             if (-not (Test-Path (Join-Path $dir $f))) { throw "Kurulumda eksik: $f" }
           }
+          # Düzenleyicinin CPU dışa aktarması libx264/libx265 ister (GPL derleme); yoksa paket yanlış FFmpeg ile üretilmiştir.
+          $enc = & (Join-Path $dir "_internal\tools\ffmpeg.exe") -hide_banner -encoders 2>&1 | Out-String
+          if ($enc -notmatch "libx264" -or $enc -notmatch "libx265") { throw "Paketlenen FFmpeg'de libx264/libx265 yok" }
           $lnk = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\KADRAJ.lnk"
           if (-not (Test-Path $lnk)) { throw "Başlat menüsü kısayolu yok: $lnk" }
 

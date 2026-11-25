@@ -5,6 +5,7 @@
     python main.py --mode legend    # belirli modda aç (simple | legend)
     python main.py --selftest       # ekransız kendi kendine sınama (ağ kapalı, geçici ev dizini)
     python main.py --selftest --screenshots DIR   # ayrıca iki modun ekran görüntülerini DIR'e yazar
+    python main.py --selftest-download URL [DIR]  # GERÇEK indirme sınaması (AĞ AÇIK): en iyi ≤1080p + birleştirme + ffprobe
 """
 from __future__ import annotations
 
@@ -42,6 +43,7 @@ def selftest(argv: Optional[List[str]] = None) -> int:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     tmp = tempfile.TemporaryDirectory(prefix="kadraj-selftest-", ignore_cleanup_errors=True)   # Windows: açık dosya silmeyi engeller
     os.environ["KADRAJ_HOME"] = str(Path(tmp.name) / "home")
+    os.environ["KADRAJ_NO_UPDATE"] = "1"                  # selftest ağa çıkmaz: bileşen güncelleyici kapalı
     os.environ["HOME"] = tmp.name
     os.environ["USERPROFILE"] = tmp.name                  # Windows'ta Path.home() HOME'a değil USERPROFILE'a bakar
     results: List[tuple] = []
@@ -223,7 +225,14 @@ def _selftest_editor(ctx, check, tmpdir: str) -> None:
     svc = ctx.service("editor")
     check("editor modülü kayıtlı, servis başladı", ctx.registry.get("editor") is not None and svc is not None,
           i18n.t("mod.editor.title"))
-    ffmpeg = shutil.which("ffmpeg")
+    from kadraj.core import components
+    if getattr(sys, "frozen", False):          # paketlenmiş uygulama: bileşenler pakette olmalı, sistemden bir şey beklenmez
+        missing = [n for n in ("ffmpeg", "ffprobe", "deno") if not components.have(n)]
+        if components.ytdlp_choice() is None:
+            missing.append("yt-dlp")
+        check("pakete gömülü bileşenler bulundu (ffmpeg, ffprobe, deno, yt-dlp)", not missing,
+              "eksik: " + ", ".join(missing) if missing else ", ".join(f"{n} {components.find(n).source}" for n in ("ffmpeg", "deno")))
+    ffmpeg = components.ffmpeg_path()
     if not ffmpeg:
         check("FFmpeg işleme (atlandı: ffmpeg yok)", True)
         return
@@ -332,11 +341,64 @@ def _selftest_ai(ctx, check, tmpdir: str) -> None:
     ctx.project.save(silent=True)
 
 
+def selftest_download(argv: List[str]) -> int:
+    """Paketlenmiş uygulamada gerçek indirme: ``--selftest-download URL [DIR]``. Ağ açıktır; ayarlar geçici ev dizininde.
+
+    Bileşenler (ffmpeg, deno, yt-dlp) ``core/components.py``'den çözülür; sonuç dosyası ffprobe ile doğrulanır.
+    Çıktının son satırı ``İNDİRME TAMAM`` ise başarılıdır."""
+    import subprocess
+    i = argv.index("--selftest-download")
+    rest = [a for a in argv[i + 1:] if not a.startswith("--")]
+    if not rest:
+        print("kullanım: --selftest-download URL [DIR]")
+        return 2
+    url = rest[0]
+    tmp = tempfile.TemporaryDirectory(prefix="kadraj-indirme-", ignore_cleanup_errors=True)
+    out_dir = Path(rest[1]) if len(rest) > 1 else Path(tmp.name) / "indirilen"
+    os.environ["KADRAJ_HOME"] = str(Path(tmp.name) / "home")
+    os.environ["KADRAJ_NO_UPDATE"] = "1"
+    from kadraj.core import components
+    from kadraj.core.contracts import SmartError
+    from kadraj.modules.downloader import service as S
+    print("bileşenler:", {k: (v["source"], v["version"]) for k, v in components.status().items()})
+    svc = S.DownloaderService()
+    try:
+        info = svc.fetch_info(url)
+        print(f"başlık: {info.title} · en yüksek {info.max_height}p · çözücü eksik: {info.degraded}")
+        print("kaliteler:", [(q.key, q.available, q.actual_height) for q in svc.quality_options(info)])
+        req = S.DownloadRequest(url=url, mode=S.MODE_AV, quality=S.QUALITY_BALANCED)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        opts = S.build_ydl_options(req, out_dir=out_dir)
+        opts["logger"] = S.Collector()
+        with svc._ydl(opts) as ydl:
+            res = ydl.extract_info(url, download=True)
+            files = S._collect_files(res or {}, ydl, S.MODE_AV)
+    except SmartError as exc:
+        print(f"HATA: {exc.title} — {exc.summary}\n  neden: {exc.cause}\n  " + "\n  ".join(exc.steps) + f"\n  ayrıntı: {exc.technical[-300:]}")
+        return 1
+    except Exception as exc:  # noqa: BLE001
+        print(f"HATA: {type(exc).__name__}: {exc}")
+        return 1
+    ffprobe = components.ffprobe_path()
+    if not files or not ffprobe or not Path(files[0]).is_file():
+        print(f"HATA: dosya ya da ffprobe yok: {files} {ffprobe}")
+        return 1
+    probe = subprocess.run([ffprobe, "-v", "error", "-show_entries", "stream=codec_type,codec_name,width,height:format=duration",
+                            "-of", "compact", files[0]], capture_output=True, text=True)
+    print(probe.stdout.strip())
+    ok = probe.returncode == 0 and "codec_type=video" in probe.stdout and "codec_type=audio" in probe.stdout
+    print(f"dosya: {files[0]} ({Path(files[0]).stat().st_size} bayt)")
+    print("İNDİRME TAMAM" if ok else "HATA: dosya oynatılabilir görünmüyor")
+    return 0 if ok else 1
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     _utf8_stdio()
     from kadraj import frozen
     frozen.apply()                                       # yalnızca paketlenmiş uygulamada: alt süreç ortamı / konsol penceresi
+    if "--selftest-download" in argv:
+        return selftest_download(argv)
     if "--selftest" in argv:
         return selftest(argv)
     from kadraj.ui.shell.app import run

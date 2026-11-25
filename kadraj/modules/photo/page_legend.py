@@ -37,6 +37,7 @@ class PhotoLegendPage(PhotoPageBase):
         self._sync = False
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 8)
+        root.addWidget(self.ai_panel)
         root.addLayout(self.error_slot)
         split = QSplitter(Qt.Orientation.Horizontal)
         root.addWidget(split, 1)

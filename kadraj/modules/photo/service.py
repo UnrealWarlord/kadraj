@@ -17,14 +17,15 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
 
 from ...ai_engine import aistrings
+from ...ai_engine.access import AIAccess, ServiceStatus
 from ...ai_engine.pipeline import quota
 from ...ai_engine.pipeline.gateway import MODEL_PROVIDER, AIGateway
 from ...ai_engine.prompt_adapter import (ASPECTS, MODELS, STYLE_IDS, AdaptedPrompt, MissingSlot, PromptError, PromptSpec, adapt,
                                          missing_slots, resolve_style, style_library)
-from ...ai_engine.providers.aicore import ai_err, extract_json
+from ...ai_engine.providers.aicore import ai_err, extract_json, sniff_mime
 from ...ai_engine.providers.install import install_all
 from ...core import i18n
-from ...core.contracts import ProviderKind, SmartError, Topics
+from ...core.contracts import PingResult, ProviderKind, SmartError, Topics
 from ...core.errors import translate
 from ...storage.folders import folder_for
 from . import imageops
@@ -91,6 +92,7 @@ class PhotoService(QObject):
     busyChanged = Signal(bool)
     toolDone = Signal(str, str)                 # (araç, çıktı yolu)
     localChanged = Signal()
+    aiChanged = Signal()                        # AI servis durumu değişti (durum çubuğu / kurulum kartı yeniler)
     _async_done = Signal(object, object, object)
     _local_done = Signal(object)
 
@@ -108,6 +110,8 @@ class PhotoService(QObject):
         self.last_adapted: Optional[AdaptedPrompt] = None
         self.last_error: Optional[SmartError] = None
         self.gateway: Optional[AIGateway] = None
+        self.access: Optional[AIAccess] = None
+        self._last_op: Optional[Tuple[Callable[[], Any], Callable[[Any], None], Optional[Callable[[BaseException], None]]]] = None
         self._next_id = 1
         self._pool = QThreadPool(self)
         self._pool.setMaxThreadCount(2)
@@ -123,6 +127,7 @@ class PhotoService(QObject):
         install_all(ctx.providers, settings=ctx.settings)
         self.gateway = AIGateway(ctx.providers, ctx.vault, ctx.settings, db=lambda: ctx.project.db if ctx.project.is_open else None)
         self.gateway.local_up = self.local_up
+        self.access = AIAccess(ctx.providers, ctx.vault, ctx.settings)
         self.model = str(ctx.settings.get("photo.model") or self.model)
         self.refresh_local()
 
@@ -135,14 +140,42 @@ class PhotoService(QObject):
             return
         reg = self.ctx.providers
 
-        def probe() -> Dict[str, bool]:
-            return {pid: bool(reg.test_connection(pid, timeout=2.0).ok) for pid in ("comfyui", "ollama") if reg.get(pid) is not None}
+        access = self.access
+
+        def probe() -> Dict[str, str]:
+            return access.probe_local(2.0) if access is not None else {}
         self._pool.start(_Task(probe, lambda res, err: self._local_done.emit(res if err is None else {})))
 
-    def _on_local(self, res: Dict[str, bool]) -> None:
-        self.local_up.update(res)
+    def _on_local(self, res: Dict[str, str]) -> None:
+        if self.access is not None:
+            self.access.set_local_state(res)
+            self.local_up.update(self.access.local_up_map())     # kapalı yerel servis False → zincirde denenmez
         self.localChanged.emit()
         self.specChanged.emit()
+        self.aiChanged.emit()
+
+    # -- AI servis durumu / kurulum ---------------------------------------------------------------------------
+    def ai_status(self, kind: str) -> ServiceStatus:
+        return self.access.status(kind) if self.access is not None else ServiceStatus(kind, "no_key")
+
+    def connect_provider(self, provider_id: str, secret: str, on_done: Callable[[PingResult], None]) -> None:
+        """Kurulum kartı: anahtarı kasaya yaz + tek ucuz gerçek çağrı yap (arka planda). Anahtar bellekte tutulmaz, loglanmaz."""
+        access = self.access
+        if access is None:
+            on_done(PingResult(False, None, i18n.t("ai.err.no_llm.summary"), ai_err("no_llm")))
+            return
+
+        def done(res: PingResult) -> None:
+            self.aiChanged.emit()
+            self.specChanged.emit()
+            on_done(res)
+        self.run_async(lambda: access.save_and_test(provider_id, secret), done, busy=False, remember=False)
+
+    def retry_last(self) -> None:
+        """Hata kartındaki "Yeniden dene": son arka plan işini aynen yeniden çalıştırır."""
+        if self._last_op is not None:
+            fn, on_done, on_error = self._last_op
+            self.run_async(fn, on_done, on_error=on_error)
 
     @property
     def project_open(self) -> bool:
@@ -162,17 +195,27 @@ class PhotoService(QObject):
         self.errorRaised.emit(err)
 
     # -- arka plan yardımcısı -----------------------------------------------------------------------------
-    def run_async(self, fn: Callable[[], Any], on_done: Callable[[Any], None], busy: bool = True) -> None:
+    def run_async(self, fn: Callable[[], Any], on_done: Callable[[Any], None], busy: bool = True, *, remember: bool = True,
+                  on_error: Optional[Callable[[BaseException], None]] = None) -> None:
+        if remember:
+            self._last_op = (fn, on_done, on_error)
         if busy:
             self._busy += 1
             self.busyChanged.emit(True)
-        self._pool.start(_Task(fn, lambda res, err: self._async_done.emit(on_done, res, err)))
+        self._pool.start(_Task(fn, lambda res, err: self._async_done.emit((on_done, on_error, busy), res, err)))
 
-    def _finish_async(self, on_done: Callable[[Any], None], res: Any, err: Any) -> None:
-        self._busy = max(0, self._busy - 1)
-        if self._busy == 0:
-            self.busyChanged.emit(False)
+    def _finish_async(self, handlers: Any, res: Any, err: Any) -> None:
+        on_done, on_error, busy = handlers
+        if busy:
+            self._busy = max(0, self._busy - 1)
+            if self._busy == 0:
+                self.busyChanged.emit(False)
         if err is not None:
+            if on_error is not None:
+                try:
+                    on_error(err)
+                except Exception:                      # noqa: BLE001 — yedek yol hata verirse asıl hata kartı yine gösterilir
+                    pass
             self._fail(err)
         else:
             on_done(res)
@@ -251,11 +294,18 @@ class PhotoService(QObject):
         self.idea = text
         self.chat.append(ChatTurn("user", text))
         if use_llm and self.gateway is not None and self.gateway.has_llm():                 # bilinen kapalı Ollama sayılmaz
-            self.run_async(lambda: self._extract(text), lambda fields: self._apply_extract(text, fields))
+            # yapay zekâ yardımcısı isteğe bağlıdır: hata verirse fikir olduğu gibi konu olur, soru-cevap yine ilerler (kart nedenini söyler)
+            self.run_async(lambda: self._extract(text), lambda fields: self._apply_extract(text, fields),
+                           on_error=lambda _exc: self._plain_idea(text))
         else:
             self.spec = PromptSpec.create(subject=text, idea=text)
             self._ask_next()
             self.specChanged.emit()
+
+    def _plain_idea(self, text: str) -> None:
+        self.spec = PromptSpec.create(subject=text, idea=text)
+        self._ask_next()
+        self.specChanged.emit()
 
     def _extract(self, text: str) -> Dict[str, Any]:
         system = EXTRACT_SYSTEM.format(aspects=", ".join(ASPECTS), styles=", ".join(STYLE_IDS))
@@ -373,7 +423,8 @@ class PhotoService(QObject):
             self.last_adapted = adapted
             out: List[Variation] = []
             for i, data in enumerate(res.images):
-                path = imageops.save_bytes(data, self.out_dir(), f"{imageops.stamp()}_{res.provider}_{i + 1}")
+                ext = {"image/jpeg": ".jpg", "image/webp": ".webp"}.get(sniff_mime(data), ".png")       # sağlayıcı JPEG/WebP verebilir
+                path = imageops.save_bytes(data, self.out_dir(), f"{imageops.stamp()}_{res.provider}_{i + 1}", ext)
                 out.append(self._register(path, res.provider, adapted, res.seed, label, res.usage.cost_usd / max(1, len(res.images))))
             return out
 
