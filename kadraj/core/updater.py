@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
+from .. import device
 from . import components
 
 YTDLP_API = "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest"
@@ -162,6 +163,8 @@ def parse_sums(text: str) -> Dict[str, str]:
 
 
 def _platform() -> Optional[Dict[str, str]]:
+    if device.is_android():
+        return None                      # Android: yalnız yt-dlp (bkz. Updater.run)
     if sys.platform == "win32":
         return {"ff": "win64", "ff_ext": ".zip", "deno": "x86_64-pc-windows-msvc"}
     if sys.platform.startswith("linux") and os.uname().machine in ("x86_64", "amd64"):
@@ -438,14 +441,16 @@ class Updater:
         rep = Report()
         try:
             self.apply_pending(rep)
-            if self.plat is None:
+            android = device.is_android()
+            if self.plat is None and not android:
                 rep.skipped = True
                 return rep
             if not self.due(force):
                 rep.skipped = True
                 return rep
             plan: List[Tuple[str, Callable[[], Release]]] = [("yt-dlp", lambda: latest_ytdlp(self.get_json, self.get_text))]
-            if big:
+            if big and not android and self.plat is not None:
+                # Android'de indirilen ikili çalıştırılamaz (W^X): FFmpeg yeni APK ile gelir, Deno yoktur; yalnız yt-dlp.
                 plan.append(("deno", lambda: latest_deno(self.plat or {}, self.get_json, self.get_text)))
                 plan.append(("ffmpeg", lambda: latest_ffmpeg(self.plat or {}, self.get_json, self.get_text)))
             larges: List[Release] = []

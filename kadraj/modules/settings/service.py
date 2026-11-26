@@ -25,6 +25,7 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from PySide6.QtCore import QObject, Signal
 
+from ... import device
 from ...core import components, i18n
 from ...core.contracts import Job, PingResult, SmartError, Topics, UiMode
 from ...storage import cache, disk, folders, profiles
@@ -85,10 +86,21 @@ def parse_ffmpeg_version(text: Any) -> str:
     return match.group(1) if match else ""
 
 
+def update_note_key() -> str:
+    """Güncelleme notunun anahtarı: Android'de açılışta yalnız yt-dlp denetlenir (FFmpeg uygulamayla gelir)."""
+    return K.ANDROID_TOOLS_NOTE if device.is_android() else K.UPDATE_STARTUP_NOTE
+
+
+def repair_hint_key() -> str:
+    """"Onar" açıklamasının anahtarı: Android'de yalnız yt-dlp yeniden indirilebilir."""
+    return K.ANDROID_REPAIR_HINT if device.is_android() else K.REPAIR_HINT
+
+
 def source_label(source: Any) -> str:
     """Bileşenin nereden geldiği (``core/components.py`` kaynağı) sade etiketi: Pakette / Güncellendi / Sistemde / Yok."""
     key = {"bundled": K.SOURCE_BUNDLED, "updated": K.SOURCE_UPDATED, "system": K.SOURCE_SYSTEM,
-           "env": K.SOURCE_SYSTEM, "module": K.SOURCE_SYSTEM}.get(str(source or ""), K.SOURCE_MISSING)
+           "env": K.SOURCE_SYSTEM, "module": K.SOURCE_SYSTEM,
+           "android": K.SOURCE_ANDROID}.get(str(source or ""), K.SOURCE_MISSING)
     return i18n.t(key)
 
 

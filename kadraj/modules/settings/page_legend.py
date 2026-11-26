@@ -24,7 +24,7 @@ from ...ui.widgets import SquishyButton
 from ...ui.widgets.surface import page_surface_qss
 from .guide import GUIDE_HOSTS, GuideView
 from .keytest import KeyTestResult
-from .service import WHISPER_MODELS, LocalRuntime, source_label
+from .service import WHISPER_MODELS, LocalRuntime, repair_hint_key, source_label, update_note_key
 from .strings import K
 
 _KINDS: Tuple[Tuple[str, str], ...] = (
@@ -261,11 +261,11 @@ class SettingsLegendPage(ThemedMixin, QWidget):
         refresh = SquishyButton(i18n.t(K.BTN_REFRESH), variant="secondary")
         refresh.clicked.connect(lambda: self.service.refresh_tools(background=True))
         lay.addWidget(refresh, 0)
-        note = QLabel(i18n.t(K.UPDATE_STARTUP_NOTE))
+        note = QLabel(i18n.t(update_note_key()))
         note.setProperty("role", "muted")
         note.setWordWrap(True)
         lay.addWidget(note)
-        hint = QLabel(i18n.t(K.REPAIR_HINT))
+        hint = QLabel(i18n.t(repair_hint_key()))
         hint.setProperty("role", "muted")
         hint.setWordWrap(True)
         lay.addWidget(hint)

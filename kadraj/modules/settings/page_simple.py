@@ -23,7 +23,8 @@ from ...ui.widgets import Lockup, SquishyButton
 from ...ui.widgets.surface import page_surface_qss
 from .guide import GUIDE_HOSTS, GuideDialog
 from .keytest import KeyTestResult
-from .service import WHISPER_MODELS, KeyRow, LocalRuntime, initials, source_label
+from .service import (WHISPER_MODELS, KeyRow, LocalRuntime, initials, repair_hint_key, source_label,
+                      update_note_key)
 from .strings import K
 
 _KIND_ACCENT = {"llm": Accent.PEACH, "image": Accent.LAVENDER, "video": Accent.MINT, "tts": Accent.BUTTER,
@@ -303,11 +304,11 @@ class SettingsSimplePage(ThemedMixin, QWidget):
         self.cb_auto_update.setChecked(self.service.auto_update())
         self.cb_auto_update.toggled.connect(self.service.set_auto_update)
         lay.addWidget(self.cb_auto_update)
-        note = QLabel(i18n.t(K.UPDATE_STARTUP_NOTE))
+        note = QLabel(i18n.t(update_note_key()))
         note.setProperty("role", "muted")
         note.setWordWrap(True)
         lay.addWidget(note)
-        hint = QLabel(i18n.t(K.REPAIR_HINT))
+        hint = QLabel(i18n.t(repair_hint_key()))
         hint.setProperty("role", "muted")
         hint.setWordWrap(True)
         lay.addWidget(hint)

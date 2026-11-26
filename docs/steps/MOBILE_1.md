@@ -4,8 +4,8 @@ Tarih: 2026-11-26 · Dal: `mobile` · Ortam: Claude'un bulut makinesinde Docker 
 
 ## Sonuç
 
-- **APK derlendi:** `kadrajmerhaba-0.1-arm64-v8a-debug.apk` (170 MB; açılmış hali 286 MB), Android Debug anahtarıyla (v2) imzalı. Depoya girmedi; Erol'un
-  bilgisayarında `dist/android/` altına kondu (git'e girmeyen klasör).
+- **APK derlendi:** `kadrajmerhaba-0.1-arm64-v8a-debug.apk` (170 MB; açılmış hali 286 MB), Android Debug anahtarıyla (v2) imzalı. Depoya girmedi; proje dosyalarında
+  `kadraj-android/KADRAJ-deneme-adim1.apk` olarak paylaşıldı (Erol telefona/tablete oradan kurar).
 - **Çalıştırma:** Bulut makinesinde KVM yok, bu yüzden Android emülatörü açılamadı (x86_64 emülatörü donanım
   hızlandırması ister; arm64 imajları x86 üzerinde artık çalışmıyor). Deneme Erol'un telefonunda/tabletinde yapılacak.
   Uygulama açıldığında ekranda 2. adım için gereken bilgileri gösterir: `sys.platform`, API düzeyi, python-for-android

@@ -10,9 +10,11 @@ import sys
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
+from PySide6.QtCore import QStandardPaths
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QApplication
 
+from ... import device, paths
 from ...core import updater
 from ...core.context import AppContext
 from ...core.contracts import UiMode
@@ -37,6 +39,10 @@ def create_app(argv: Optional[List[str]] = None, *, settings: Optional[SettingsS
         app.setApplicationName("kadraj")
         app.setOrganizationName("insibag")
         QGuiApplication.setDesktopFileName("kadraj")
+        if device.is_android():
+            # HOME → uygulamaya ayrılmış dış depolama (Documents); Path.home() kullanan her yer oraya yazar.
+            documents = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DocumentsLocation)
+            paths.prepare_android_environment(documents)
     app.setWindowIcon(app_icon())
     fonts.load_fonts()
     ctx = AppContext(settings=settings, discover=discover)

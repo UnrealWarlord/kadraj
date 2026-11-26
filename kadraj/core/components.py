@@ -9,6 +9,11 @@ Arama sırası (ilk bulunan kazanır):
 3. **Uygulamayla gelen kopya** — paketlenmiş uygulamada ``<paket>/tools/`` (kurulum paketi hepsini içerir).
 4. **Sistem PATH'i** (yt-dlp hariç: o bir Python paketidir, ``prepare_ytdlp`` ile içe aktarılır).
 
+**Android** (``kadraj.device.is_android()``): Android 10+ yazılabilir klasörden ikili çalıştırmaya izin vermez (W^X).
+Bu yüzden ffmpeg/ffprobe APK'nın yerel kütüphane klasörüne ``lib<ad>.so`` adıyla gömülür ve **yalnız** oradan
+(ya da ortam değişkeninden) bulunur; ``~/.kadraj/tools`` ve PATH ikililer için denenmez. yt-dlp saf Python
+olduğundan güncellenmiş zipapp Android'de de kullanılır. Deno'nun Android sürümü yoktur.
+
 Bu modül **ağa çıkmaz** ve Qt'ye bağlı değildir; güncelleme kodu ``kadraj/core/updater.py``'dedir.
 """
 from __future__ import annotations
@@ -22,7 +27,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from .. import paths
+from .. import device, paths
 
 NAMES: Tuple[str, ...] = ("ffmpeg", "ffprobe", "deno", "yt-dlp")
 _ENV = {"ffmpeg": "KADRAJ_FFMPEG", "ffprobe": "KADRAJ_FFPROBE", "deno": "KADRAJ_DENO", "yt-dlp": "KADRAJ_YTDLP"}
@@ -31,6 +36,9 @@ LABELS = {"ffmpeg": "FFmpeg", "ffprobe": "ffprobe", "deno": "Deno", "yt-dlp": "y
 GROUPS: Dict[str, Tuple[str, ...]] = {"ffmpeg": ("ffmpeg", "ffprobe"), "deno": ("deno",), "yt-dlp": ("yt-dlp",)}
 
 SOURCE_ENV, SOURCE_UPDATED, SOURCE_BUNDLED, SOURCE_SYSTEM, SOURCE_MODULE = "env", "updated", "bundled", "system", "module"
+SOURCE_ANDROID = "android"
+#: Android'de APK'nın yerel kütüphane klasöründeki dosya adları (``jniLibs/arm64-v8a/lib<ad>.so``). ``None``: Android'de yok.
+ANDROID_LIBS: Dict[str, Optional[str]] = {"ffmpeg": "libffmpeg.so", "ffprobe": "libffprobe.so", "deno": None, "yt-dlp": None}
 VERSIONS_FILE = "versions.json"
 _PROBE_TIMEOUT = 6.0
 
@@ -39,7 +47,7 @@ _PROBE_TIMEOUT = 6.0
 class Found:
     name: str
     path: str
-    source: str            # env | updated | bundled | system | module
+    source: str            # env | updated | bundled | system | module | android
     version: str = ""
 
 
@@ -81,11 +89,25 @@ def _file_ok(p: Path) -> bool:
         return False
 
 
+def android_lib(name: str) -> Optional[Path]:
+    """Android'de ``name`` ikilisinin APK içindeki yeri (``nativeLibraryDir/lib<ad>.so``); yoksa ``None``."""
+    lib = ANDROID_LIBS.get(name)
+    if not lib or not device.is_android():
+        return None
+    libdir = device.native_library_dir()
+    return libdir / lib if libdir is not None else None
+
+
 def _candidates(name: str) -> List[Tuple[str, Path]]:
     out: List[Tuple[str, Path]] = []
     env = os.environ.get(_ENV[name])
     if env:
         out.append((SOURCE_ENV, Path(env).expanduser()))
+    if device.is_android() and name != "yt-dlp":
+        lib = android_lib(name)                 # W^X: ikililer yalnız APK'nın kütüphane klasöründen çalışır
+        if lib is not None:
+            out.append((SOURCE_ANDROID, lib))
+        return out
     out.append((SOURCE_UPDATED, tools_dir() / exe_name(name)))
     b = bundled_dir()
     if b is not None:
@@ -117,7 +139,7 @@ def find(name: str) -> Optional[Found]:
     for source, p in _candidates(name):
         if _file_ok(p):
             return Found(name, str(p), source, recorded_version(name, source))
-    if name != "yt-dlp":
+    if name != "yt-dlp" and not device.is_android():
         hit = shutil.which(name)
         if hit:
             return Found(name, hit, SOURCE_SYSTEM)
