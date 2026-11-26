@@ -99,6 +99,7 @@ class Topics:
     ERROR = "error.raised"                      # SmartError
     SYSMON = "sys.sample"                       # dict {"cpu": %, "ram_used": B, "ram_total": B, "gpu": %|None, ...}
     PROJECT_RESTORED = "project.restored"       # dict {"reason": "rewind|snapshot|undo_rewind", "label": str}  (Adım 3)
+    VAULT_RESET = "vault.reset"                 # dict — kasa kartındaki "Kasayı sıfırla"; kabuk onay sorup sıfırlar (M19)
 
 
 # --- Proje klasör düzeni (plan §3) ------------------------------------------

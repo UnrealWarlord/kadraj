@@ -241,7 +241,9 @@ class SettingsService(QObject):
 
     # -- API kasası --------------------------------------------------------
     def vault_state(self) -> Tuple[str, str]:
-        """Kasa durumu ve kısa mesaj: ``ready`` | ``locked`` | ``empty`` | ``error``."""
+        """Kasa durumu ve kısa mesaj: ``ready`` | ``locked`` | ``empty`` | ``needs_passphrase`` | ``error``.
+
+        ``needs_passphrase``: kasa henüz yok ve sistem anahtar zinciri yok (Android); ilk anahtardan önce parola."""
         status = getattr(self._vault(), "status", None)
         if not callable(status):
             return "ready", ""
@@ -252,7 +254,32 @@ class SettingsService(QObject):
             return "locked", i18n.t(K.VAULT_LOCKED)
         if st.state == "error":
             return "error", st.error.summary if st.error else i18n.t(K.VAULT_ERROR)
+        if st.state == "empty" and not self._keyring_available():
+            return "needs_passphrase", i18n.t(K.VAULT_NEEDS_PASS)
         return st.state, ""
+
+    def _keyring_available(self) -> bool:
+        probe = getattr(self._vault(), "keyring_available", None)
+        return bool(_safe(probe, default=True)) if callable(probe) else True
+
+    def set_vault_passphrase(self, passphrase: str, repeat: str) -> None:
+        """Kasayı parola kipinde kurar (anahtar zinciri yoksa; Android). Parola hiçbir yere yazılmaz."""
+        if passphrase != repeat:
+            raise ValueError(i18n.t(K.PASS_MISMATCH))
+        if len(passphrase) < 8:
+            raise ValueError(i18n.t(K.PASS_SHORT))
+        self._vault().initialize(passphrase)                # kasa zaten varsa SmartError
+        self.changed.emit("keys")
+
+    def unlock_vault(self, passphrase: str) -> None:
+        """Parola kipindeki kasayı bu oturum için açar. Yanlış parola → ``SmartError`` (vault.wrong_passphrase)."""
+        self._vault().unlock(passphrase)
+        self.changed.emit("keys")
+
+    def reset_vault(self) -> None:
+        """Kasayı sıfırlar (parola unutuldu, dosya bozuk…): eski dosya ``.bad`` olarak yedeklenir, anahtarlar gider."""
+        self._vault().reset()
+        self.changed.emit("keys")
 
     def key_providers(self) -> List[Any]:
         # anahtarını başka bir servisle paylaşan servis (ör. OpenAI görsel → OpenAI) ayrı satır olmaz: kasada tek kayıt, tek satır

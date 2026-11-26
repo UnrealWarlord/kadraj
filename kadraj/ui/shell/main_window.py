@@ -13,14 +13,14 @@ import threading
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from PySide6.QtCore import QByteArray, Qt, Signal
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtCore import QByteArray, Qt, QUrl, Signal
+from PySide6.QtGui import QAction, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (QDockWidget, QFileDialog, QInputDialog, QMainWindow, QMenu, QMenuBar,
                                QMessageBox, QStackedWidget, QVBoxLayout, QWidget)
 
 from ... import branding, updates
 from ...core import i18n
-from ...core.contracts import SmartError, Topics, UiMode
+from ...core.contracts import SmartAction, SmartError, Topics, UiMode
 from ...core.registry import ModuleEntry
 from .dialogs import AboutDialog, ErrorDialog
 from .home import SimpleHome
@@ -184,6 +184,7 @@ class MainWindow(QMainWindow):
             sub(Topics.JOB_ADDED, lambda _j: self._sync_jobs()),
             sub(Topics.JOB_UPDATED, lambda _j: self._sync_jobs()),
             sub(Topics.SYSMON, self.status.set_system),
+            sub(Topics.VAULT_RESET, lambda _d=None: self.reset_vault()),
         ]
 
     # ------------------------------------------------------------------ çeviri
@@ -481,9 +482,35 @@ class MainWindow(QMainWindow):
         if not isinstance(err, SmartError):
             return
         dlg = ErrorDialog(err, self)
+        dlg.card.actionTriggered.connect(lambda action, d=dlg: self._on_error_action(action, d))
         self._error_dialogs.append(dlg)
         dlg.finished.connect(lambda _r, d=dlg: self._error_dialogs.remove(d) if d in self._error_dialogs else None)
         dlg.show()
+
+    def _on_error_action(self, action: SmartAction, dialog: ErrorDialog) -> None:
+        """Hata penceresindeki düğmeler (kopyalama kartın içinde): ayarları aç, sayfayı aç, konu yayınla."""
+        kind = action.kind
+        if kind == "open_settings":
+            dialog.close()
+            self.open_module("settings")
+        elif kind == "open_url":
+            url = str(action.payload.get("url", ""))
+            if url.startswith(("https://", "http://")):
+                QDesktopServices.openUrl(QUrl(url))
+        elif kind == "custom":
+            topic = str(action.payload.get("topic", ""))
+            if topic:
+                dialog.close()
+                self.ctx.bus.emit(topic, dict(action.payload))
+
+    def reset_vault(self) -> None:
+        """Kasa hata kartındaki "Kasayı sıfırla": Ayarlar'daki düğmeyle aynı onaylı akış (eski dosya yedeklenir)."""
+        service = self.ctx.service("settings")
+        if service is None:
+            return
+        from ...modules.settings import vault_ui
+        vault_ui.reset_vault(self, service, self.status.set_message,
+                             lambda exc: self.ctx.report_error(exc, {"source": "vault"}))
 
     def _set_a11y(self, key: str, value: bool) -> None:
         self.ctx.settings.set(f"a11y.{key}", bool(value))

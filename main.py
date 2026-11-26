@@ -132,6 +132,20 @@ def _selftest_security(ctx, check, tmpdir: str, attempts: list) -> None:
     raw = ctx.vault.path.read_bytes()
     check("kasa: şifreli yazıldı, düz anahtar dosyada yok", secret.encode() not in raw and ctx.vault.has_secret("anthropic"),
           f"maskeli: {ctx.vault.masked('anthropic')}")
+    from pathlib import Path
+    from kadraj.storage import fernet_lite
+    from kadraj.storage.vault import Vault
+    phone = Vault(Path(tmpdir) / "telefon-kasa.bin", kdf_iterations=1000)        # anahtar zinciri olmayan cihaz (M19)
+    phone.initialize("selftest-parola-42")
+    phone.set_secret("pexels", secret)
+    reopened = Vault(phone.path, kdf_iterations=1000)
+    locked = reopened.status().state == "locked"
+    reopened.unlock("selftest-parola-42")
+    ref = Vault._crypto()[0]                                                    # masaüstünde cryptography'nin Fernet'i
+    key = ref.generate_key()
+    cross = fernet_lite.Fernet(key).decrypt(ref(key).encrypt(b"kadraj")) == b"kadraj"
+    check("kasa (telefon): parola kipi, kilitle/aç, saf Python Fernet uyumlu",
+          locked and reopened.get_secret("pexels") == secret and cross, f"Fernet: {ref.__module__}")
     mark = len(attempts)
     res = ctx.providers.test_connection("anthropic", ctx.vault, timeout=1.0)    # bilerek ağa çıkar; engellenir
     probed = len(attempts) - mark

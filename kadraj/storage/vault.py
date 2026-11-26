@@ -1,5 +1,9 @@
 """Şifreli API kasası — ``~/.kadraj/vault.bin`` (Fernet; anahtar OS keyring'de ya da parolayla türetilir).
 
+Şifreleme ``cryptography.fernet`` ile; paket yoksa (Android APK'sı) aynı biçimi üreten ``fernet_lite`` ile (M19).
+Parola türetme standart kütüphanenin ``hashlib.pbkdf2_hmac``'ı (``cryptography``'nin PBKDF2HMAC'ıyla aynı çıktı).
+Android'de keyring yoktur: kasa parola kipindedir (M4) ve her oturumda ``unlock(parola)`` gerekir.
+
 Güvenlik modeli
 ---------------
 * Dosya: JSON başlığı (``format``, ``version``, ``mode``, ``key_id``, ``kdf``) + ``token`` (Fernet ile şifreli
@@ -20,6 +24,7 @@ Güvenlik modeli
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import re
@@ -32,7 +37,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .. import paths
-from ..core.contracts import (Severity, SmartAction, SmartError, VaultStatus)
+from ..core.contracts import (Severity, SmartAction, SmartError, Topics, VaultStatus)
 from ..core.i18n import t
 from ..core.stubs import mask_secret
 
@@ -96,7 +101,7 @@ def _error(code: str, technical: str = "", **fmt: Any) -> SmartError:
     key = f"vault.{code}"
     actions = ()
     if code in ("key_missing", "corrupt"):
-        actions = (SmartAction("reset", t("vault.action.reset"), "custom", {"topic": "vault.reset"}),)
+        actions = (SmartAction("reset", t("vault.action.reset"), "custom", {"topic": Topics.VAULT_RESET}),)
     return SmartError(f"vault.{code}", t(f"{key}.title"), t(f"{key}.summary", **fmt),
                       cause=t(f"{key}.cause"), steps=(t(f"{key}.step1"),), actions=actions,
                       severity=Severity.ERROR, technical=technical, source="vault")
@@ -192,9 +197,15 @@ class Vault:
     # -- şifreleme ---------------------------------------------------------
     @staticmethod
     def _crypto():
-        """(Fernet, InvalidToken) — ``cryptography`` yoksa ``SmartError`` (uygulama düşmez)."""
+        """(Fernet, InvalidToken): ``cryptography`` varsa onunki, yoksa ``fernet_lite`` (aynı belirteç biçimi).
+        İkisi de yüklenemezse ``SmartError`` (uygulama düşmez)."""
         try:
             from cryptography.fernet import Fernet, InvalidToken
+            return Fernet, InvalidToken
+        except Exception:
+            pass
+        try:
+            from .fernet_lite import Fernet, InvalidToken
         except Exception as exc:
             raise _error("backend_missing", f"{type(exc).__name__}") from exc
         return Fernet, InvalidToken
@@ -204,13 +215,9 @@ class Vault:
         return cls._crypto()[0](key)
 
     def _derive(self, passphrase: str, salt: bytes, iterations: int) -> bytes:
-        try:
-            from cryptography.hazmat.primitives import hashes
-            from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-        except Exception as exc:
-            raise _error("backend_missing", f"{type(exc).__name__}") from exc
-        kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=iterations)
-        return base64.urlsafe_b64encode(kdf.derive(passphrase.encode("utf-8")))
+        """PBKDF2-HMAC-SHA256 → 32 bayt Fernet anahtarı (url-safe base64)."""
+        raw = hashlib.pbkdf2_hmac("sha256", passphrase.encode("utf-8"), salt, iterations, dklen=32)
+        return base64.urlsafe_b64encode(raw)
 
     def _decrypt(self, header: Dict[str, Any], key: bytes, wrong: str) -> Dict[str, Any]:
         _fernet_cls, InvalidToken = self._crypto()
@@ -299,10 +306,14 @@ class Vault:
     # -- VaultAdminAPI -------------------------------------------------------
     def is_available(self) -> bool:
         try:
-            import cryptography.fernet  # noqa: F401
+            self._crypto()
             return True
         except Exception:
             return False
+
+    def keyring_available(self) -> bool:
+        """Sistem anahtar zinciri modülü var mı? Yoksa (Android) kasa ilk anahtardan önce parolayla kurulur."""
+        return _resolve_keyring(self._kr_backend) is not None
 
     def status(self) -> VaultStatus:
         with self._lock:

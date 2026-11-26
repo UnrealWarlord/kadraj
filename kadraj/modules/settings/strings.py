@@ -24,6 +24,35 @@ _PAIRS: Dict[str, Tuple[str, str]] = {
     "VAULT_LOCKED": ("Kasa kilitli. Açmak için parolanı gir.",
                      "The vault is locked. Enter your passphrase to open it."),
     "VAULT_ERROR": ("Kasa açılamadı.", "The vault could not be opened."),
+    "VAULT_NEEDS_PASS": ("Bu cihazda sistem anahtar zinciri yok; anahtarlar senin belirleyeceğin bir parolayla "
+                         "şifrelenir. Uygulama her açıldığında kasayı bu parolayla açarsın.",
+                         "This device has no system keyring; keys are encrypted with a passphrase you choose. "
+                         "You open the vault with it each time the app starts."),
+    "BTN_SET_PASS": ("Parola belirle", "Set passphrase"),
+    "BTN_UNLOCK": ("Kilidi aç", "Unlock"),
+    "PASS_TITLE": ("Kasa parolası", "Vault passphrase"),
+    "PASS_NEW_NOTE": ("En az 8 karakter. Bu parolayı unutursan kasadaki anahtarlar açılamaz; anahtarları yeniden "
+                      "eklemen gerekir.",
+                      "At least 8 characters. If you forget it, the keys in the vault can't be opened and you'll "
+                      "need to add them again."),
+    "PASS_FIELD": ("Parola", "Passphrase"),
+    "PASS_REPEAT": ("Parola (tekrar)", "Passphrase (again)"),
+    "PASS_MISMATCH": ("Parolalar aynı değil.", "The passphrases don't match."),
+    "PASS_SHORT": ("Parola en az 8 karakter olmalı.", "The passphrase must be at least 8 characters."),
+    "PASS_SET": ("Kasa parolası belirlendi.", "Vault passphrase set."),
+    "PASS_PROMPT": ("Kasa parolasını gir:", "Enter the vault passphrase:"),
+    "PASS_UNLOCKED": ("Kasa açıldı.", "Vault unlocked."),
+    "BTN_FORGOT": ("Parolamı unuttum", "I forgot my passphrase"),
+    "BTN_RESET": ("Kasayı sıfırla", "Reset the vault"),
+    "RESET_TITLE": ("Kasa sıfırlansın mı?", "Reset the vault?"),
+    "RESET_TEXT": ("Kasadaki API anahtarları silinir; eski kasa dosyası yedek olarak saklanır. Sonra anahtarlarını "
+                   "yeniden eklersin.",
+                   "The API keys in the vault are removed; the old vault file is kept as a backup. You can then add "
+                   "your keys again."),
+    "RESET_CONFIRM": ("Sıfırla", "Reset"),
+    "RESET_CANCEL": ("Vazgeç", "Cancel"),
+    "RESET_DONE": ("Kasa sıfırlandı. Anahtarlarını yeniden ekleyebilirsin.",
+                   "The vault was reset. You can add your keys again."),
     "VAULT_EMPTY_KEY": ("Anahtar boş olamaz.", "The key can't be empty."),
     "VAULT_KEY_TITLE": ("{name} anahtarı", "{name} key"),
     "VAULT_KEY_PROMPT": ("Anahtarı yapıştır:", "Paste the key:"),
