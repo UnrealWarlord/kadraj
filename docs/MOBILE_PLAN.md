@@ -22,6 +22,12 @@
 - **Commit'ler yalnız yerel kayıt noktasıdır.** Push, etiket, Release, Actions'ı çalıştırma, silme gibi **GitHub işlerini kullanıcı kendisi yapar** (GitHub'ı öğreniyor). Sen adım adım tarif edersin; `gh` ile yalnızca okuma (log, durum) yaparsın. Kullanıcı açıkça "sen hallet" derse o istek için yaparsın.
 - Doğrulama Docker / izole `.venv` içinde yapılır; doğrulama için oluşturulan her şey (imajlar, venv'ler, geçici klasörler) sonra silinir. Önceden var olan `postgres:16` imajına ve `gpusa-db` konteynerine dokunma.
 - Marka kuralı: "KADRAJ" adı/logosu nerede görünürse sağ altında küçük, düşük opaklıklı **"from İnsibağ"** imzası olur (ikonlarda yalnız ≥256 px). Yalnızca `Lockup` bileşeni üzerinden.
+- **Dal (branch) kuralı:** Bütün mobil iş **`mobile` dalında** yapılır; `main`'e dokunulmaz.
+  - Başlarken: `git switch mobile` (dal yerelde var; GitHub'da yoksa kullanıcı `git push -u origin mobile` ile gönderir).
+  - Yerel commit'ler `mobile` dalına atılır; push'u kullanıcı yapar (`git push`).
+  - CI denemesi: kullanıcı Actions → "Sürüm paketleri" → **Run workflow** → dal olarak `mobile` seçer (yalnız artifact üretir, Release'e dokunmaz).
+  - `main`'de yeni bir masaüstü düzeltmesi olursa `mobile` dalına `git merge main` ile alınır (çakışma olursa kullanıcıya sorulur).
+  - İş bitip son doğrulama geçince ve **kullanıcı onaylayınca** `main`'e birleştirilir: `git switch main && git merge --no-ff mobile`; sonra sürüm yükseltilir ve Release'i kullanıcı oluşturur.
 - Sürüm: `kadraj/version.py` tek kaynaktır. Release etiketi tam olarak `v` + bu sürüm olmalı; değilse CI derlemeden durur. Release silmek etiketi silmez — yeniden yayında etiketi de silip `main`'den yeni etiket oluşturmak gerekir.
 
 ## 2. KADRAJ bugün (v2.0.0)
