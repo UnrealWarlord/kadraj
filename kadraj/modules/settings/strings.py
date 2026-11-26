@@ -114,6 +114,7 @@ _PAIRS: Dict[str, Tuple[str, str]] = {
     "UPDATE_OFFLINE_STEP1": ("İnternet bağlantını kontrol et.", "Check your internet connection."),
     "UPDATE_OFFLINE_STEP2": ("Bağlanınca “Şimdi güncelle” düğmesine yeniden bas.", "When connected, press “Update now” again."),
     "TOOL_DENO": ("Video çözücü (Deno)", "Video decoder (Deno)"),
+    "TOOL_QUICKJS": ("Video çözücü (QuickJS)", "Video decoder (QuickJS)"),
     "AUTO_UPDATE": ("Açılışta bileşenleri güncelle", "Update components at startup"),
     "UPDATE_NOW": ("Şimdi güncelle", "Update now"),
     "UPDATE_STARTUP_NOTE": ("Açılışta yt-dlp, FFmpeg ve Deno resmî kaynaklarından denetlenir; büyük indirmeler arka planda sürer, yeni sürüm bir sonraki açılışta geçerli olabilir.",

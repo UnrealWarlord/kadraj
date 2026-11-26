@@ -26,7 +26,7 @@ def _clear(monkeypatch, var):
 
 @pytest.fixture()
 def desktop(monkeypatch):
-    for var in _ANDROID_VARS + ("TMPDIR",):
+    for var in _ANDROID_VARS + ("TMPDIR", "SSL_CERT_FILE"):
         _clear(monkeypatch, var)
     monkeypatch.setattr(tempfile, "tempdir", tempfile.tempdir)   # prepare_android_environment önbelleği sıfırlar
     monkeypatch.setattr(sys, "platform", "linux")
@@ -104,6 +104,8 @@ def test_prepare_android_environment_sets_home_to_documents_and_tmp_to_private(a
     assert paths.prepare_android_environment(str(docs)) == docs
     assert os.environ["HOME"] == str(docs) and Path.home() == docs and paths.user_dir() == docs
     assert os.environ["TMPDIR"] == str(private / "tmp") and (private / "tmp").is_dir()
+    import certifi
+    assert os.environ["SSL_CERT_FILE"] == certifi.where()          # Android OpenSSL'inin CA klasörü yok
 
 
 def test_prepare_android_environment_falls_back_to_private_dir(android, monkeypatch):
@@ -145,7 +147,7 @@ def tools(android, monkeypatch, tmp_path):
     (home / "tools").mkdir(parents=True)
     monkeypatch.setenv("KADRAJ_HOME", str(home))
     monkeypatch.delenv("KADRAJ_BUNDLED_TOOLS", raising=False)
-    for var in ("KADRAJ_FFMPEG", "KADRAJ_FFPROBE", "KADRAJ_DENO", "KADRAJ_YTDLP"):
+    for var in ("KADRAJ_FFMPEG", "KADRAJ_FFPROBE", "KADRAJ_DENO", "KADRAJ_YTDLP", "KADRAJ_QUICKJS"):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setattr(C.shutil, "which", lambda n: f"/system/bin/{n}")
     return home / "tools", libdir
@@ -166,7 +168,7 @@ def test_android_ffmpeg_comes_only_from_the_native_library_dir(tools):
     hit = C.find("ffmpeg")
     assert hit.source == C.SOURCE_ANDROID and hit.path == str(libdir / "libffmpeg.so")
     assert C.ffprobe_path() == str(libdir / "libffprobe.so")
-    assert C.ffmpeg_location() == str(libdir)
+    assert C.ffmpeg_location() == str(C.android_links_dir())     # yt-dlp "ffmpeg"/"ffprobe" adlarını arar
     assert C.find("deno") is None
 
 
@@ -224,3 +226,95 @@ def test_desktop_without_supported_platform_still_skips(desktop, monkeypatch, tm
     u = U.Updater(get_json=lambda *a, **k: pytest.fail("ağa çıkmamalı"), get_text=lambda *a, **k: "",
                   download=lambda *a, **k: "", platform=None)
     assert u.run(force=True).skipped
+
+
+def test_android_quickjs_is_the_js_runtime(tools):
+    _, libdir = tools
+    assert C.js_runtime() is None
+    qjs = _exe(libdir / "libqjs.so")
+    assert C.find("deno") is None                                    # Deno'nun Android sürümü yok
+    assert C.js_runtime() == (C.QUICKJS, str(qjs)) and C.js_runtime_label() == "QuickJS"
+
+
+def test_desktop_js_runtime_prefers_deno_and_quickjs_needs_env(desktop, monkeypatch, tmp_path):
+    monkeypatch.setenv("KADRAJ_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("KADRAJ_BUNDLED_TOOLS", raising=False)
+    for var in ("KADRAJ_DENO", "KADRAJ_QUICKJS"):
+        _clear(monkeypatch, var)
+    monkeypatch.setattr(C.shutil, "which", lambda n: None)
+    assert C.js_runtime() is None and C.js_runtime_label() == "Deno"
+    qjs = _exe(tmp_path / "qjs")
+    monkeypatch.setenv("KADRAJ_QUICKJS", str(qjs))
+    assert C.js_runtime() == (C.QUICKJS, str(qjs))
+    deno = _exe(tmp_path / "deno")
+    monkeypatch.setenv("KADRAJ_DENO", str(deno))
+    assert C.js_runtime() == ("deno", str(deno))
+    assert "quickjs" not in C.NAMES                                  # paketleme/güncelleme birimi değil
+
+
+def test_android_ffmpeg_location_is_a_folder_of_named_links(tools, monkeypatch, tmp_path):
+    _, libdir = tools
+    ff, fp = _exe(libdir / "libffmpeg.so"), _exe(libdir / "libffprobe.so")
+    loc = Path(C.ffmpeg_location())
+    assert loc == C.android_links_dir()
+    assert (loc / "ffmpeg").is_symlink() and (loc / "ffmpeg").resolve() == ff.resolve()
+    assert (loc / "ffprobe").resolve() == fp.resolve()
+    newlib = tmp_path / "data" / "app" / "org.insibag.kadraj-2" / "lib" / "arm64"       # uygulama güncellendi
+    newlib.mkdir(parents=True)
+    ff2 = _exe(newlib / "libffmpeg.so")
+    _exe(newlib / "libffprobe.so")
+    monkeypatch.setenv("KADRAJ_ANDROID_LIBDIR", str(newlib))
+    assert Path(C.ffmpeg_location()) == loc and (loc / "ffmpeg").resolve() == ff2.resolve()
+
+
+def test_quickjs_version_comes_from_help_output(tools):
+    _, libdir = tools
+    qjs = libdir / "libqjs.so"
+    qjs.write_text('#!/bin/sh\necho "QuickJS-ng version 0.18.0"\necho "usage: qjs [options] [file [args]]"\nexit 1\n')
+    os.chmod(qjs, 0o755)
+    assert C.probe_version(C.QUICKJS) == "0.18.0"
+
+
+def test_android_downloader_uses_quickjs_and_the_link_folder(tools):
+    from kadraj.modules.downloader import service as DS
+    _, libdir = tools
+    _exe(libdir / "libffmpeg.so")
+    _exe(libdir / "libffprobe.so")
+    qjs = _exe(libdir / "libqjs.so")
+    opts = DS.engine_options()
+    assert opts["js_runtimes"] == {"quickjs": {"path": str(qjs)}}
+    assert opts["ffmpeg_location"] == str(C.android_links_dir())
+
+
+def test_android_startup_line_names_quickjs(tools):
+    from kadraj.ui.shell import startup
+    _, libdir = tools
+    _exe(libdir / "libqjs.so")
+    js = startup.detect_tools()["deno"]
+    assert js.label == "QuickJS" and js.ok
+
+
+def test_android_subtitles_and_text_use_the_app_fonts(android):
+    from kadraj.modules.editor import automations as au
+    from kadraj.modules.editor import filtergraph as FG
+    fonts = paths.fonts_dir()
+    assert (fonts / FG.ANDROID_FONT_FILE).is_file()
+    extra, style = FG.android_subtitle_args("FontSize=24", srt=True)
+    assert extra == f":fontsdir={FG.quote(str(fonts))}" and style == "FontName=Inter,FontSize=24"
+    assert FG.android_subtitle_args("FontName=Nunito,FontSize=24", srt=True)[1] == "FontName=Nunito,FontSize=24"
+    assert FG.android_subtitle_args("", srt=False) == (extra, "")           # .ass'ın kendi stili var
+    assert FG.default_text_font() == str(fonts / FG.ANDROID_FONT_FILE)
+    assert "Style: Dyn,Inter," in au.build_ass([], 160, 90)
+
+
+def test_desktop_subtitles_and_text_are_unchanged(desktop):
+    from kadraj.modules.editor import automations as au
+    from kadraj.modules.editor import filtergraph as FG
+    assert FG.android_subtitle_args("FontSize=24", srt=True) == ("", "FontSize=24")
+    assert FG.default_text_font() == "" and "Style: Dyn,Sans," in au.build_ass([], 160, 90)
+
+
+def test_android_settings_name_quickjs_for_the_js_row(android):
+    from kadraj.modules.settings import service as S
+    from kadraj.modules.settings.strings import K
+    assert S.js_tool_key() == K.TOOL_QUICKJS

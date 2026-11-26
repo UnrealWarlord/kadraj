@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -30,15 +31,21 @@ from typing import Dict, List, Optional, Tuple
 from .. import device, paths
 
 NAMES: Tuple[str, ...] = ("ffmpeg", "ffprobe", "deno", "yt-dlp")
-_ENV = {"ffmpeg": "KADRAJ_FFMPEG", "ffprobe": "KADRAJ_FFPROBE", "deno": "KADRAJ_DENO", "yt-dlp": "KADRAJ_YTDLP"}
-LABELS = {"ffmpeg": "FFmpeg", "ffprobe": "ffprobe", "deno": "Deno", "yt-dlp": "yt-dlp"}
+#: YouTube JS çözücüsünün (yt-dlp-ejs) Android'deki çalıştırıcısı: APK'daki QuickJS-ng (``libqjs.so``). Deno'nun
+#: Android sürümü yoktur. Güncelleme/paketleme birimi değildir (``NAMES``'te yok); masaüstünde yalnız
+#: ``KADRAJ_QUICKJS`` ortam değişkeniyle kullanılır.
+QUICKJS = "quickjs"
+_ENV = {"ffmpeg": "KADRAJ_FFMPEG", "ffprobe": "KADRAJ_FFPROBE", "deno": "KADRAJ_DENO", "yt-dlp": "KADRAJ_YTDLP",
+        QUICKJS: "KADRAJ_QUICKJS"}
+LABELS = {"ffmpeg": "FFmpeg", "ffprobe": "ffprobe", "deno": "Deno", "yt-dlp": "yt-dlp", QUICKJS: "QuickJS"}
 #: Güncelleme birimleri: ffmpeg + ffprobe aynı arşivden gelir, birlikte değişir.
 GROUPS: Dict[str, Tuple[str, ...]] = {"ffmpeg": ("ffmpeg", "ffprobe"), "deno": ("deno",), "yt-dlp": ("yt-dlp",)}
 
 SOURCE_ENV, SOURCE_UPDATED, SOURCE_BUNDLED, SOURCE_SYSTEM, SOURCE_MODULE = "env", "updated", "bundled", "system", "module"
 SOURCE_ANDROID = "android"
 #: Android'de APK'nın yerel kütüphane klasöründeki dosya adları (``jniLibs/arm64-v8a/lib<ad>.so``). ``None``: Android'de yok.
-ANDROID_LIBS: Dict[str, Optional[str]] = {"ffmpeg": "libffmpeg.so", "ffprobe": "libffprobe.so", "deno": None, "yt-dlp": None}
+ANDROID_LIBS: Dict[str, Optional[str]] = {"ffmpeg": "libffmpeg.so", "ffprobe": "libffprobe.so", "deno": None, "yt-dlp": None,
+                                         QUICKJS: "libqjs.so"}
 VERSIONS_FILE = "versions.json"
 _PROBE_TIMEOUT = 6.0
 
@@ -108,6 +115,8 @@ def _candidates(name: str) -> List[Tuple[str, Path]]:
         if lib is not None:
             out.append((SOURCE_ANDROID, lib))
         return out
+    if name not in NAMES:                       # quickjs: masaüstünde yalnız ortam değişkeniyle
+        return out
     out.append((SOURCE_UPDATED, tools_dir() / exe_name(name)))
     b = bundled_dir()
     if b is not None:
@@ -134,12 +143,12 @@ def recorded_version(name: str, source: str) -> str:
 
 def find(name: str) -> Optional[Found]:
     """``name`` bileşeninin bulunduğu ilk yer; hiçbiri yoksa ``None``. Ağa çıkmaz, süreç başlatmaz."""
-    if name not in NAMES:
+    if name not in NAMES and name != QUICKJS:
         raise KeyError(name)
     for source, p in _candidates(name):
         if _file_ok(p):
             return Found(name, str(p), source, recorded_version(name, source))
-    if name != "yt-dlp" and not device.is_android():
+    if name in NAMES and name != "yt-dlp" and not device.is_android():
         hit = shutil.which(name)
         if hit:
             return Found(name, hit, SOURCE_SYSTEM)
@@ -163,10 +172,72 @@ def deno_path() -> Optional[str]:
     return path_of("deno")
 
 
+def quickjs_path() -> Optional[str]:
+    return path_of(QUICKJS)
+
+
+def js_runtime() -> Optional[Tuple[str, str]]:
+    """yt-dlp'nin YouTube JS çözücüsü (yt-dlp-ejs) için çalıştırıcı: ``("deno", yol)`` ya da ``("quickjs", yol)``.
+
+    Masaüstünde Deno; Android'de Deno yoktur, APK'daki QuickJS-ng kullanılır. Hiçbiri yoksa ``None``.
+    """
+    deno = deno_path()
+    if deno:
+        return "deno", deno
+    qjs = quickjs_path()
+    if qjs:
+        return QUICKJS, qjs
+    return None
+
+
+def js_runtime_label() -> str:
+    """Ayarlar ve açılış satırı için çalıştırıcının adı: Android'de "QuickJS", başka yerde "Deno"."""
+    return LABELS[QUICKJS] if device.is_android() else LABELS["deno"]
+
+
+def android_links_dir() -> Path:
+    """Android'de ``ffmpeg`` / ``ffprobe`` adlı sembolik bağlantıların klasörü (``~/.kadraj/bin``, uygulamanın iç klasörü)."""
+    return paths.home_dir() / "bin"
+
+
+def _android_links() -> Optional[Path]:
+    """``libffmpeg.so`` / ``libffprobe.so``'ya ``ffmpeg`` / ``ffprobe`` adıyla bağlantı kurar; klasörü döner.
+
+    yt-dlp ffmpeg'in klasörünü alır ve ffprobe'u o klasörde ``ffprobe`` adıyla arar; APK'daki dosyalar ise
+    ``lib<ad>.so`` adını taşımak zorundadır. Bağlantı çalıştırılınca hedef (APK'nın kütüphane klasörü) çalışır, W^X'e
+    takılmaz. Uygulama güncellenince kütüphane klasörü değişir; bağlantılar her çağrıda denetlenip yenilenir.
+    """
+    folder = android_links_dir()
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        for name in ("ffmpeg", "ffprobe"):
+            hit = find(name)
+            if hit is None:
+                continue
+            link = folder / name
+            if link.is_symlink() and os.readlink(link) == hit.path:
+                continue
+            if link.is_symlink() or link.exists():
+                link.unlink()
+            link.symlink_to(hit.path)
+    except OSError:
+        return None
+    return folder
+
+
 def ffmpeg_location() -> Optional[str]:
-    """yt-dlp'nin ``ffmpeg_location`` seçeneği: ffmpeg'in bulunduğu KLASÖR (ffprobe da yanında aranır)."""
+    """yt-dlp'nin ``ffmpeg_location`` seçeneği: ffmpeg'in bulunduğu KLASÖR (ffprobe da yanında aranır).
+
+    Android'de APK'daki ``libffmpeg.so`` için ``ffmpeg``/``ffprobe`` bağlantılarının klasörü; bağlantı kurulamazsa
+    ffmpeg'in dosya yolu (yt-dlp o zaman ffprobe'suz çalışır).
+    """
     p = ffmpeg_path()
-    return str(Path(p).parent) if p else None
+    if not p:
+        return None
+    if device.is_android() and Path(p).name != "ffmpeg":
+        folder = _android_links()
+        return str(folder) if folder is not None else p
+    return str(Path(p).parent)
 
 
 def have(name: str) -> bool:
@@ -258,6 +329,9 @@ def probe_version(name: str) -> str:
         return ""
     if hit.version and hit.source in (SOURCE_UPDATED, SOURCE_BUNDLED):
         return hit.version
+    if name == QUICKJS:                # qjs'nin --version'ı yok; --help ilk satırı "QuickJS-ng version 0.18.0"
+        m = re.match(r"QuickJS(?:-ng)?\s+version\s+(\S+)", _run_first_line([hit.path, "--help"]))
+        return m.group(1) if m else ""
     line = _run_first_line([hit.path, "--version" if name == "deno" else "-version"])
     parts = line.split()
     if name == "deno":

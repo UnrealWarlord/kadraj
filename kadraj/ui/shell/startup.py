@@ -38,7 +38,7 @@ def _module(name: str) -> bool:
 CHECKS: List[Tuple[str, str, Callable[[], bool]]] = [
     ("ffmpeg", "FFmpeg", lambda: components.have("ffmpeg") and components.have("ffprobe")),
     ("yt-dlp", "yt-dlp", lambda: components.ytdlp_choice() is not None or _module("yt_dlp")),
-    ("deno", "Deno", lambda: components.have("deno")),
+    ("deno", "Deno", lambda: components.js_runtime() is not None),          # Android'de QuickJS (etiket aşağıda)
     ("ollama", "Ollama", lambda: _which("ollama")),
     ("portaudio", "PortAudio", lambda: _module("sounddevice")),
 ]
@@ -51,6 +51,8 @@ def detect_tools() -> Dict[str, ToolStatus]:
             ok = bool(fn())
         except Exception:
             ok = False
+        if key == "deno":
+            label = components.js_runtime_label()
         out[key] = ToolStatus(key, label, ok)
     return out
 

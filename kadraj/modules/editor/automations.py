@@ -20,7 +20,7 @@ import numpy as np
 
 from . import color, frames, ops
 from .errors import install_hint, smart
-from .filtergraph import fps_arg, num
+from .filtergraph import fps_arg, num, subtitle_font
 from .probe import probe, require_ffmpeg
 from .timeline import Clip, Keyframe, Timeline, Track, new_id
 
@@ -498,9 +498,10 @@ def _ass_time(t: float) -> str:
     return f"{cs // 360000}:{cs // 6000 % 60:02d}:{cs // 100 % 60:02d}.{cs % 100:02d}"
 
 
-def build_ass(segments: Sequence[Any], width: int, height: int, *, font: str = "Sans", size_frac: float = 0.055,
+def build_ass(segments: Sequence[Any], width: int, height: int, *, font: Optional[str] = None, size_frac: float = 0.055,
               primary: str = "&H00FFFFFF", highlight: str = "&H0000E0FF", offset: float = 0.0) -> str:
     """Kelime kelime vurgulanan (karaoke ``\\k``) ASS altyazı üretir. ``segments``: ``start/end/text`` nitelikli nesneler."""
+    font = font or subtitle_font()              # Android'de fontconfig yok: uygulamanın yazı tipi
     size = max(12, int(height * size_frac))
     head = ("[Script Info]\nScriptType: v4.00+\nPlayResX: %d\nPlayResY: %d\nWrapStyle: 0\n\n[V4+ Styles]\n"
             "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, "

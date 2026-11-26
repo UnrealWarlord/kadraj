@@ -401,9 +401,24 @@ def main(argv: Optional[List[str]] = None) -> int:
         return selftest_download(argv)
     if "--selftest" in argv:
         return selftest(argv)
+    from kadraj import device
+    if device.is_android():
+        return _run_android(argv)
     from kadraj.ui.shell.app import run
     return run(["kadraj"], splash=not ("--launcher" in argv or "--no-splash" in argv),
                mode=_arg_value(argv, "--mode"))
+
+
+def _run_android(argv: List[str]) -> int:
+    """Android: açılışı durduran hata kara ekran bırakmasın; ekranda gösterilir ve Belgeler/KADRAJ-hata.txt'ye yazılır."""
+    try:
+        from kadraj.ui.shell.app import run
+        return run(["kadraj"], splash=True, mode=_arg_value(argv, "--mode"))
+    except Exception:  # noqa: BLE001
+        import traceback
+        from kadraj import crashlog
+        crashlog.show_fatal(traceback.format_exc())
+        return 1
 
 
 if __name__ == "__main__":

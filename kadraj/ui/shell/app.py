@@ -14,7 +14,7 @@ from PySide6.QtCore import QStandardPaths
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QApplication
 
-from ... import device, paths
+from ... import crashlog, device, paths
 from ...core import updater
 from ...core.context import AppContext
 from ...core.contracts import UiMode
@@ -42,7 +42,10 @@ def create_app(argv: Optional[List[str]] = None, *, settings: Optional[SettingsS
         if device.is_android():
             # HOME → uygulamaya ayrılmış dış depolama (Documents); Path.home() kullanan her yer oraya yazar.
             documents = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DocumentsLocation)
-            paths.prepare_android_environment(documents)
+            home = paths.prepare_android_environment(documents)
+            if home is not None:
+                crashlog.install(home)          # yakalanmamış hata ve çökme → Belgeler/KADRAJ-hata.txt
+            app.setStyle("Fusion")              # Android stili eklentisi paketlenmez; masaüstü Linux'takiyle aynı taban
     app.setWindowIcon(app_icon())
     fonts.load_fonts()
     ctx = AppContext(settings=settings, discover=discover)

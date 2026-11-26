@@ -93,6 +93,12 @@ def prepare_android_environment(documents_dir: Optional[str] = None) -> Optional
             tempfile.tempdir = None              # önceden hesaplanmışsa bir sonraki çağrıda TMPDIR'den yeniden bulunsun
         except OSError:
             pass
+    # Android'deki OpenSSL'in sistem sertifika klasörü yoktur: urllib/ssl için certifi'nin CA listesi kullanılsın.
+    try:
+        import certifi
+        os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+    except Exception:  # noqa: BLE001 — certifi yoksa HTTPS doğrulaması ilk istekte açıklamalı hata verir
+        pass
     return home
 
 

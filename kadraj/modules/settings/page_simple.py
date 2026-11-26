@@ -23,7 +23,7 @@ from ...ui.widgets import Lockup, SquishyButton
 from ...ui.widgets.surface import page_surface_qss
 from .guide import GUIDE_HOSTS, GuideDialog
 from .keytest import KeyTestResult
-from .service import (WHISPER_MODELS, KeyRow, LocalRuntime, initials, repair_hint_key, source_label,
+from .service import (WHISPER_MODELS, KeyRow, LocalRuntime, initials, js_tool_key, repair_hint_key, source_label,
                       update_note_key)
 from .strings import K
 
@@ -493,7 +493,7 @@ class SettingsSimplePage(ThemedMixin, QWidget):
         info = self.service.tool_info()
         self.ytdlp_label.setText(_tool_line(K.TOOL_YTDLP, info.ytdlp, info.sources.get("yt-dlp", "")))
         self.ffmpeg_label.setText(_tool_line(K.TOOL_FFMPEG, info.ffmpeg, info.sources.get("ffmpeg", "")))
-        self.deno_label.setText(_tool_line(K.TOOL_DENO, info.deno, info.sources.get("deno", "")))
+        self.deno_label.setText(_tool_line(js_tool_key(), info.deno, info.sources.get("deno", "")))
 
     # -- eylemler ----------------------------------------------------------
     def _say(self, text: str) -> None:

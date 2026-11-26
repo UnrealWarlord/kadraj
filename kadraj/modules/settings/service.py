@@ -86,6 +86,11 @@ def parse_ffmpeg_version(text: Any) -> str:
     return match.group(1) if match else ""
 
 
+def js_tool_key() -> str:
+    """YouTube JS çözücüsü satırının etiketi: Android'de QuickJS (APK'da gelir), başka yerde Deno."""
+    return K.TOOL_QUICKJS if device.is_android() else K.TOOL_DENO
+
+
 def update_note_key() -> str:
     """Güncelleme notunun anahtarı: Android'de açılışta yalnız yt-dlp denetlenir (FFmpeg uygulamayla gelir)."""
     return K.ANDROID_TOOLS_NOTE if device.is_android() else K.UPDATE_STARTUP_NOTE
@@ -464,12 +469,13 @@ class SettingsService(QObject):
             else:
                 code, out = self._run([exe, "-version"], 5.0)
                 ffmpeg = parse_ffmpeg_version(out) if code == 0 else ""
-        deno = components.find("deno")
+        js_name = components.QUICKJS if device.is_android() else "deno"      # "deno" satırı: JS çözücüsü
+        deno = components.find(js_name)
         ytdlp = components.ytdlp_choice()
         sources = {"yt-dlp": ytdlp.source if ytdlp else "", "ffmpeg": ff_hit.source if ff_hit else "",
                    "deno": deno.source if deno else ""}
         self._tools = ToolInfo(_ytdlp_version(), ffmpeg, exe,
-                               (deno.version or components.probe_version("deno")) if deno else "", sources)
+                               (deno.version or components.probe_version(js_name)) if deno else "", sources)
         self._tools_loaded = True
         self.changed.emit("tools")
 

@@ -24,5 +24,6 @@ Plan: `docs/MOBILE_PLAN.md` · kararlar: `docs/DECISIONS.md` → "Mobil kararlar
 | Adım | Thread | Durum | Commit | Devir notu |
 |---|---|---|---|---|
 | M1 · Keşif: merhaba-dünya APK + bağımlılık matrisi | Claude (koordinatör thread'i) | ✓ APK derlendi (170 MB, arm64, debug imzalı) · emülatör yok (KVM yok), cihaz denemesi Erol'da | `f064e7f` | `docs/steps/MOBILE_1.md` (yalnız `## DEVİR`) |
-| M2 · Platform katmanı: cihaz algılama, Android klasörleri, araç kaynakları | Claude (koordinatör thread'i) | ✓ `kadraj/device.py`, Android yolları, FFmpeg yalnız APK'dan, güncelleyici yalnız yt-dlp · masaüstü testleri aynen geçiyor | (bu commit) | `docs/steps/MOBILE_2.md` (yalnız `## DEVİR`) |
+| M2 · Platform katmanı: cihaz algılama, Android klasörleri, araç kaynakları | Claude (koordinatör thread'i) | ✓ `kadraj/device.py`, Android yolları, FFmpeg yalnız APK'dan, güncelleyici yalnız yt-dlp · masaüstü testleri aynen geçiyor | `ee26535` | `docs/steps/MOBILE_2.md` (yalnız `## DEVİR`) |
+| M3 · FFmpeg + QuickJS gömme, yt-dlp, gerçek uygulama APK'sı | Claude (koordinatör thread'i) | ✓ FFmpeg 9.1/ffprobe/QuickJS-ng statik arm64 · qemu sınamaları 17/17 (uçtan uca indirme dahil) · inceltilmiş PySide6 tarifi · açılış hatası ekranda · cihaz denemesi Erol'da | (bu commit) | `docs/steps/MOBILE_3.md` (yalnız `## DEVİR`) |
 

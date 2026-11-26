@@ -19,6 +19,7 @@ import tempfile
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
+from ... import device, paths
 from .errors import smart
 from .probe import MediaInfo, probe
 from .timeline import (Clip, EQ_BANDS, Keyframe, Timeline, Track, fps_value, interpolate, sample_keyframes)
@@ -42,6 +43,35 @@ def fps_arg(fps: float) -> str:
         if abs(f - n / 1001) < 1e-6:
             return f"{n}/1001"
     return str(int(round(f))) if abs(f - round(f)) < 1e-6 else num(f)
+
+
+#: Android'de fontconfig yoktur: libass (altyazı) ve drawtext (yazı) yalnız uygulamanın kendi yazı tiplerini
+#: (``paths.fonts_dir()``) görür. Bu yüzden orada aile adı ve dosya açıkça verilir.
+ANDROID_FONT_FAMILY = "Inter"
+ANDROID_FONT_FILE = "Inter-SemiBold.ttf"
+
+
+def subtitle_font() -> str:
+    """Altyazı stilinin yazı tipi ailesi: masaüstünde "Sans" (fontconfig seçer), Android'de uygulamadaki Inter."""
+    return ANDROID_FONT_FAMILY if device.is_android() else "Sans"
+
+
+def android_subtitle_args(style: str, srt: bool) -> Tuple[str, str]:
+    """Android'de ``subtitles`` süzgecine eklenecek ``:fontsdir=…`` ve gerekirse ``FontName``'li stil.
+
+    ``.srt`` için stil yazı tipi adı vermiyorsa uygulamanın ailesi eklenir (yoksa libass "Arial"ı bulamaz ve yazı
+    çıkmaz). ``.ass`` dosyalarının kendi stilleri olduğundan onlara dokunulmaz. Masaüstünde ``("", style)`` döner.
+    """
+    if not device.is_android():
+        return "", style
+    if srt and "fontname" not in style.lower():
+        style = ",".join(x for x in (f"FontName={ANDROID_FONT_FAMILY}", style) if x)
+    return f":fontsdir={quote(str(paths.fonts_dir()))}", style
+
+
+def default_text_font() -> str:
+    """``drawtext`` için yazı tipi dosyası verilmemişse: masaüstünde boş (fontconfig), Android'de uygulamadaki Inter."""
+    return str(paths.fonts_dir() / ANDROID_FONT_FILE) if device.is_android() else ""
 
 
 def quote(text: str) -> str:
@@ -316,8 +346,9 @@ class _Builder:
         out = self.lab("txt")
         if d.get("ass") or d.get("srt"):
             path = str(d.get("ass") or d.get("srt"))
-            style = f":force_style={quote(str(d['style']))}" if d.get("style") and d.get("srt") else ""
-            self.lines.append(f"[{cur}]subtitles=filename={quote(path)}{style}[{out}]")
+            fonts, style_text = android_subtitle_args(str(d.get("style") or "") if d.get("srt") else "", bool(d.get("srt")))
+            style = f":force_style={quote(style_text)}" if style_text else ""
+            self.lines.append(f"[{cur}]subtitles=filename={quote(path)}{fonts}{style}[{out}]")
             return out
         text = str(d.get("text", clip.name or ""))
         if not text:
@@ -331,7 +362,8 @@ class _Builder:
         x = d.get("x"), d.get("y")
         px = f"(w-text_w)/2" if x[0] is None else f"{num(float(x[0]) * self.W)}"
         py = f"h-text_h-{num(self.H * 0.08)}" if x[1] is None else f"{num(float(x[1]) * self.H)}"
-        font = f":fontfile={quote(str(d['font']))}" if d.get("font") else ""
+        font_file = str(d.get("font") or default_text_font())
+        font = f":fontfile={quote(font_file)}" if font_file else ""
         box = f":box=1:boxcolor=black@0.45:boxborderw={max(4, size // 4)}" if d.get("box", True) else ""
         self.lines.append(f"[{cur}]drawtext=textfile={quote(tmp)}:expansion=none{font}:fontsize={size}:fontcolor={color}:x='{px}':y='{py}'{box}"
                           f":enable='{enable}'[{out}]")

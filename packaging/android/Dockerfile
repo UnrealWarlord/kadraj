@@ -63,4 +63,7 @@ RUN pip install --no-cache-dir \
         "buildozer==1.6.0" "cython==0.29.33" \
         jinja2 pkginfo tqdm "packaging==24.1" setuptools wheel appdirs sh colorama toml
 
+# Yerel araçlar (FFmpeg bağımlılıkları dav1d, FreeType, FriBidi, HarfBuzz, libass) meson ile derlenir: build_native.sh
+RUN pip install --no-cache-dir "meson==1.11.2"
+
 CMD ["bash"]

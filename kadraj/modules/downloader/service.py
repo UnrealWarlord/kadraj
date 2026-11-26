@@ -490,14 +490,16 @@ def fit_quality(info: Optional[VideoInfo], quality: str) -> str:
 
 
 def engine_options() -> Dict[str, Any]:
-    """Gerçek ``YoutubeDL``'e eklenen motor seçenekleri: ffmpeg konumu, JS çalışma zamanı (Deno), EJS betikleri."""
+    """Gerçek ``YoutubeDL``'e eklenen motor seçenekleri: ffmpeg konumu, JS çalışma zamanı (masaüstünde Deno,
+    Android'de QuickJS), EJS betikleri."""
     opts: Dict[str, Any] = {}
     loc = components.ffmpeg_location()
     if loc:
         opts["ffmpeg_location"] = loc
-    deno = components.deno_path()
-    if deno:
-        opts["js_runtimes"] = {"deno": {"path": deno}}
+    runtime = components.js_runtime()
+    if runtime:
+        name, path = runtime
+        opts["js_runtimes"] = {name: {"path": path}}
     # EJS çözücü betikleri pakette (yt-dlp zipapp'ı / yt-dlp-ejs) yoksa yt-dlp bunları resmî GitHub'dan alabilsin.
     opts["remote_components"] = ["ejs:github"]
     return opts

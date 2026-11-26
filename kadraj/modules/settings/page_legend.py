@@ -24,7 +24,8 @@ from ...ui.widgets import SquishyButton
 from ...ui.widgets.surface import page_surface_qss
 from .guide import GUIDE_HOSTS, GuideView
 from .keytest import KeyTestResult
-from .service import WHISPER_MODELS, LocalRuntime, repair_hint_key, source_label, update_note_key
+from .service import (WHISPER_MODELS, LocalRuntime, js_tool_key, repair_hint_key, source_label,
+                      update_note_key)
 from .strings import K
 
 _KINDS: Tuple[Tuple[str, str], ...] = (
@@ -440,7 +441,7 @@ class SettingsLegendPage(ThemedMixin, QWidget):
         rows = (
             (i18n.t(K.TOOL_YTDLP), info.ytdlp, source_label(src.get("yt-dlp", "")), "update"),
             (i18n.t(K.TOOL_FFMPEG), info.ffmpeg, source_label(src.get("ffmpeg", "")), None),
-            (i18n.t(K.TOOL_DENO), info.deno, source_label(src.get("deno", "")), None),
+            (i18n.t(js_tool_key()), info.deno, source_label(src.get("deno", "")), None),
         )
         self.tools_table.setRowCount(len(rows))
         for r, (name, version, state, action) in enumerate(rows):
