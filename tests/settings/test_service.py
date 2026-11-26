@@ -172,6 +172,49 @@ def test_component_update_error_becomes_a_failed_job(svc, ctx):
     assert failed.status.value == "failed" and failed.error
 
 
+def test_repair_is_the_update_job_run_with_a_seeded_updater(svc, ctx):
+    from kadraj.core.updater import Report
+    seen = []
+
+    def factory(seed=False):
+        seen.append(seed)
+        return _FakeUpdater(Report(updated=["yt-dlp", "deno", "ffmpeg", "ffprobe"]))
+
+    svc.updater_factory = factory
+    job = svc.repair_components()
+    assert ctx.jobs.get(job.id).payload.get("repair") is True
+    assert ctx.jobs.wait_idle(10000)
+    assert ctx.jobs.get(job.id).status.value == "done"
+    assert seen == [True]
+
+
+def test_plain_update_keeps_the_updater_unseeded(svc, ctx):
+    from kadraj.core.updater import Report
+    seen = []
+
+    def factory(seed=False):
+        seen.append(seed)
+        return _FakeUpdater(Report(current=["yt-dlp"]))
+
+    svc.updater_factory = factory
+    svc.update_components()
+    assert ctx.jobs.wait_idle(10000)
+    assert seen == [False]
+
+
+def test_source_labels_say_where_each_component_comes_from(svc):
+    assert S.source_label("bundled") == "Pakette"
+    assert S.source_label("updated") == "Güncellendi"
+    assert S.source_label("system") == S.source_label("env") == S.source_label("module") == "Sistemde"
+    assert S.source_label("") == "Yok"
+
+
+def test_tool_info_carries_the_source_of_each_component(svc):
+    info = S.ToolInfo("2025.1", "7.1", "/opt/ffmpeg", "2.0", {"yt-dlp": "updated", "ffmpeg": "bundled", "deno": ""})
+    assert info.sources == {"yt-dlp": "updated", "ffmpeg": "bundled", "deno": ""}
+    assert S.ToolInfo("", "", "").sources == {}
+
+
 def test_auto_update_setting_defaults_on_and_persists(svc):
     assert svc.auto_update() is True
     svc.set_auto_update(False)

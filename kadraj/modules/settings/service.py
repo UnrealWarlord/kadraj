@@ -19,7 +19,7 @@ import subprocess
 import sys
 import tempfile
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
@@ -41,13 +41,6 @@ _KIND_KEYS = {
     "stt": K.KIND_STT, "stock": K.KIND_STOCK, "local": K.KIND_LOCAL,
 }
 _FFMPEG_RE = re.compile(r"ffmpeg version (\S+)")
-_FFMPEG_HINTS: Tuple[Tuple[str, str], ...] = (
-    ("Debian / Ubuntu", "sudo apt install ffmpeg"),
-    ("Fedora (RPM Fusion ile)", "sudo dnf install ffmpeg"),
-    ("Arch", "sudo pacman -S ffmpeg"),
-    ("macOS (Homebrew)", "brew install ffmpeg"),
-    ("Windows (winget)", "winget install Gyan.FFmpeg"),
-)
 
 
 # ---------------------------------------------------------------------------
@@ -92,9 +85,11 @@ def parse_ffmpeg_version(text: Any) -> str:
     return match.group(1) if match else ""
 
 
-def install_hints() -> Tuple[Tuple[str, str], ...]:
-    """FFmpeg için sistem paket yöneticisi komutları. Uygulama bunları ÇALIŞTIRMAZ; yalnızca gösterir."""
-    return _FFMPEG_HINTS
+def source_label(source: Any) -> str:
+    """Bileşenin nereden geldiği (``core/components.py`` kaynağı) sade etiketi: Pakette / Güncellendi / Sistemde / Yok."""
+    key = {"bundled": K.SOURCE_BUNDLED, "updated": K.SOURCE_UPDATED, "system": K.SOURCE_SYSTEM,
+           "env": K.SOURCE_SYSTEM, "module": K.SOURCE_SYSTEM}.get(str(source or ""), K.SOURCE_MISSING)
+    return i18n.t(key)
 
 
 def _ytdlp_version() -> str:
@@ -157,6 +152,8 @@ class ToolInfo:
     ffmpeg: str
     ffmpeg_path: str
     deno: str = ""
+    #: bileşen → kaynak (``env|updated|bundled|system|module``; bulunamadıysa ``""``): "yt-dlp", "ffmpeg", "deno"
+    sources: Dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -448,15 +445,19 @@ class SettingsService(QObject):
     def _refresh_tools_worker(self) -> None:
         exe = components.ffmpeg_path() or ""
         ffmpeg = ""
+        ff_hit = components.find("ffmpeg")
         if exe:
-            hit = components.find("ffmpeg")
-            if hit is not None and hit.version and hit.source in (components.SOURCE_UPDATED, components.SOURCE_BUNDLED):
-                ffmpeg = hit.version                                   # güncelleyici/paketleme sürümü yazdı
+            if ff_hit is not None and ff_hit.version and ff_hit.source in (components.SOURCE_UPDATED, components.SOURCE_BUNDLED):
+                ffmpeg = ff_hit.version                                # güncelleyici/paketleme sürümü yazdı
             else:
                 code, out = self._run([exe, "-version"], 5.0)
                 ffmpeg = parse_ffmpeg_version(out) if code == 0 else ""
         deno = components.find("deno")
-        self._tools = ToolInfo(_ytdlp_version(), ffmpeg, exe, (deno.version or components.probe_version("deno")) if deno else "")
+        ytdlp = components.ytdlp_choice()
+        sources = {"yt-dlp": ytdlp.source if ytdlp else "", "ffmpeg": ff_hit.source if ff_hit else "",
+                   "deno": deno.source if deno else ""}
+        self._tools = ToolInfo(_ytdlp_version(), ffmpeg, exe,
+                               (deno.version or components.probe_version("deno")) if deno else "", sources)
         self._tools_loaded = True
         self.changed.emit("tools")
 
@@ -473,6 +474,13 @@ class SettingsService(QObject):
             raise RuntimeError("Ayarlar servisi başlatılmadı")
         return self.ctx.jobs.submit(UPDATE_KIND, {}, i18n.t(K.UPDATE_TITLE), notify=True)
 
+    def repair_components(self) -> Job:
+        """"Onar": eksik ya da bozuk yt-dlp, FFmpeg, ffprobe ve Deno'yu kurulu sürümleri yok sayarak resmî kaynaklardan
+        yeniden indirir (``Updater(seed=True)``; SHA-256 doğrulaması ve atomik değişim aynı kalır)."""
+        if self.ctx is None:
+            raise RuntimeError("Ayarlar servisi başlatılmadı")
+        return self.ctx.jobs.submit(UPDATE_KIND, {"repair": True}, i18n.t(K.REPAIR_TITLE), notify=True)
+
     def auto_update(self) -> bool:
         """"Açılışta bileşenleri güncelle" anahtarı (varsayılan açık)."""
         return bool(self.settings.get("tools.auto_update", True))
@@ -482,8 +490,12 @@ class SettingsService(QObject):
 
     def _handle_ytdlp_update(self, job: Job, jc: Any) -> Dict[str, Any]:
         from ...core import updater
+        repair = bool((getattr(job, "payload", None) or {}).get("repair"))
         jc.report(0.05, "")
-        runner = self.updater_factory() if self.updater_factory is not None else updater.Updater()
+        if self.updater_factory is not None:
+            runner = self.updater_factory(seed=True) if repair else self.updater_factory()
+        else:
+            runner = updater.Updater(seed=repair)
         rep = runner.run(lambda text, frac: jc.report(0.05 + 0.9 * (frac or 0.0), text), force=True)
         if rep.offline and not rep.updated and not rep.pending:
             raise SmartError("tools.offline", i18n.t(K.UPDATE_OFFLINE_TITLE), i18n.t(K.UPDATE_OFFLINE_SUMMARY),
@@ -509,9 +521,6 @@ class SettingsService(QObject):
     def _on_job_updated(self, job: Any) -> None:
         if getattr(job, "kind", "") == UPDATE_KIND and getattr(job, "finished", False):
             self.refresh_tools(background=True)
-
-    def ffmpeg_hints(self) -> Tuple[Tuple[str, str], ...]:
-        return install_hints()
 
     # -- proje klasörü ve önbellek -----------------------------------------
     def project_root(self) -> str:

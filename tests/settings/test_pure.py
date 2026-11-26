@@ -43,7 +43,20 @@ def test_ffmpeg_version_parsing():
     assert S.parse_ffmpeg_version("komut bulunamadı") == ""
 
 
-def test_install_hints_cover_common_systems():
-    hints = dict(S.install_hints())
-    assert hints["Debian / Ubuntu"] == "sudo apt install ffmpeg"
-    assert len(hints) == 5
+_MANUAL_INSTALL = ("winget", "Gyan", "apt install ffmpeg", "dnf install ffmpeg", "pacman -S ffmpeg",
+                   "brew install ffmpeg", "ffmpeg_hints", "install_hints")
+
+
+def test_no_manual_ffmpeg_install_instructions_remain():
+    """Bileşenler paketle ya da "Onar" ile gelir; uygulamanın hiçbir yerinde elle kurma komutu kalmamalı."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    files = [p for p in (root / "kadraj").rglob("*") if p.is_file() and p.suffix in (".py", ".txt", ".md", ".json")]
+    files.append(root / "packaging" / "linux" / "KURULUM.txt")
+    offenders = []
+    for path in files:
+        text = path.read_text(encoding="utf-8", errors="replace")
+        offenders += [f"{path.relative_to(root)}: {needle}" for needle in _MANUAL_INSTALL if needle in text]
+    assert not offenders, offenders
+    assert not hasattr(S, "install_hints")

@@ -23,7 +23,7 @@ from ...ui.widgets import Lockup, SquishyButton
 from ...ui.widgets.surface import page_surface_qss
 from .guide import GUIDE_HOSTS, GuideDialog
 from .keytest import KeyTestResult
-from .service import WHISPER_MODELS, KeyRow, LocalRuntime, initials
+from .service import WHISPER_MODELS, KeyRow, LocalRuntime, initials, source_label
 from .strings import K
 
 _KIND_ACCENT = {"llm": Accent.PEACH, "image": Accent.LAVENDER, "video": Accent.MINT, "tts": Accent.BUTTER,
@@ -289,16 +289,14 @@ class SettingsSimplePage(ThemedMixin, QWidget):
         self.ytdlp_label = QLabel("")
         self.ytdlp_update = SquishyButton(i18n.t(K.UPDATE_NOW), variant="secondary")
         self.ytdlp_update.clicked.connect(self._update_ytdlp)
+        self.repair_btn = SquishyButton(i18n.t(K.BTN_REPAIR), variant="ghost")
+        self.repair_btn.clicked.connect(self._repair_components)
         row.addWidget(self.ytdlp_label, 1)
         row.addWidget(self.ytdlp_update)
+        row.addWidget(self.repair_btn)
         lay.addLayout(row)
-        row2 = QHBoxLayout()
         self.ffmpeg_label = QLabel("")
-        how = SquishyButton(i18n.t(K.BTN_HOW_INSTALL), variant="ghost")
-        how.clicked.connect(self._show_install)
-        row2.addWidget(self.ffmpeg_label, 1)
-        row2.addWidget(how)
-        lay.addLayout(row2)
+        lay.addWidget(self.ffmpeg_label)
         self.deno_label = QLabel("")
         lay.addWidget(self.deno_label)
         self.cb_auto_update = QCheckBox(i18n.t(K.AUTO_UPDATE))
@@ -309,6 +307,10 @@ class SettingsSimplePage(ThemedMixin, QWidget):
         note.setProperty("role", "muted")
         note.setWordWrap(True)
         lay.addWidget(note)
+        hint = QLabel(i18n.t(K.REPAIR_HINT))
+        hint.setProperty("role", "muted")
+        hint.setWordWrap(True)
+        lay.addWidget(hint)
         return frame
 
     # -- yenileme ----------------------------------------------------------
@@ -488,9 +490,9 @@ class SettingsSimplePage(ThemedMixin, QWidget):
 
     def _refresh_tools(self) -> None:
         info = self.service.tool_info()
-        self.ytdlp_label.setText(f"{i18n.t(K.TOOL_YTDLP)}: {info.ytdlp or i18n.t(K.TOOL_MISSING)}")
-        self.ffmpeg_label.setText(f"{i18n.t(K.TOOL_FFMPEG)}: {info.ffmpeg or i18n.t(K.TOOL_MISSING)}")
-        self.deno_label.setText(f"{i18n.t(K.TOOL_DENO)}: {info.deno or i18n.t(K.TOOL_MISSING)}")
+        self.ytdlp_label.setText(_tool_line(K.TOOL_YTDLP, info.ytdlp, info.sources.get("yt-dlp", "")))
+        self.ffmpeg_label.setText(_tool_line(K.TOOL_FFMPEG, info.ffmpeg, info.sources.get("ffmpeg", "")))
+        self.deno_label.setText(_tool_line(K.TOOL_DENO, info.deno, info.sources.get("deno", "")))
 
     # -- eylemler ----------------------------------------------------------
     def _say(self, text: str) -> None:
@@ -626,10 +628,20 @@ class SettingsSimplePage(ThemedMixin, QWidget):
         except (ValueError, RuntimeError) as exc:
             self._say(str(exc))
 
-    def _show_install(self) -> None:
-        lines = [i18n.t(K.INSTALL_NOTE), ""]
-        lines += [f"{label}: {cmd}" for label, cmd in self.service.ffmpeg_hints()]
-        QMessageBox.information(self, i18n.t(K.INSTALL_TITLE), "\n".join(lines))
+    def _repair_components(self) -> None:
+        try:
+            self.service.repair_components()
+            self._say(i18n.t(K.REPAIR_QUEUED))
+        except (ValueError, RuntimeError) as exc:
+            self._say(str(exc))
+
+
+def _tool_line(name_key: str, version: str, source: str) -> str:
+    """Araç satırı: ``ad: sürüm · kaynak``. Sürüm yoksa "Bulunamadı · Yok"; kaynak bilinmiyorsa kaynak eklenmez."""
+    if not version:
+        return f"{i18n.t(name_key)}: {i18n.t(K.TOOL_MISSING)} · {source_label('')}"
+    tail = f" · {source_label(source)}" if source else ""
+    return f"{i18n.t(name_key)}: {version}{tail}"
 
 
 _LED_KEYS = {"ok": K.LED_OK, "fail": K.LED_FAIL, "idle": K.LED_IDLE, "checking": K.LED_CHECKING}

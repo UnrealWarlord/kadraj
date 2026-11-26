@@ -102,3 +102,50 @@ def _press():
     from PySide6.QtGui import QMouseEvent
     return QMouseEvent(QMouseEvent.Type.MouseButtonPress, QPointF(1, 1), QPointF(1, 1), Qt.MouseButton.LeftButton,
                        Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+
+
+def test_tools_show_each_components_source_and_onar_runs_a_seeded_repair(ctx, svc, qtbot):
+    from PySide6.QtWidgets import QAbstractButton, QLabel
+
+    from kadraj.core.updater import Report
+    from kadraj.modules.settings.service import ToolInfo
+
+    seen = []
+
+    class _Runner:
+        def run(self, progress=None, *, force=False, **_kw):
+            return Report(current=["yt-dlp"])
+
+    def factory(seed=False):
+        seen.append(seed)
+        return _Runner()
+
+    svc.updater_factory = factory
+    svc._tools = ToolInfo("2025.1", "7.1", "/opt/ffmpeg", "2.0",
+                          {"yt-dlp": "updated", "ffmpeg": "bundled", "deno": "system"})
+    svc._tools_loaded = True
+
+    simple = SettingsSimplePage(ctx)
+    qtbot.addWidget(simple)
+    simple._refresh_tools()
+    texts = " ".join(label.text() for label in simple.findChildren(QLabel))
+    assert "Video indirici (yt-dlp): 2025.1 · Güncellendi" in texts
+    assert "Ses ve video motoru (FFmpeg): 7.1 · Pakette" in texts
+    assert "Video çözücü (Deno): 2.0 · Sistemde" in texts
+    assert not [b for b in simple.findChildren(QAbstractButton) if "kurarım" in b.text()]
+
+    legend = SettingsLegendPage(ctx)
+    qtbot.addWidget(legend)
+    legend._show_section(5)                                  # "Araçlar" bölümü (TOPIC_SECTION["tools"] == 5)
+    assert [legend.tools_table.item(r, 2).text() for r in range(3)] == ["Güncellendi", "Pakette", "Sistemde"]
+    legend_repair = [b for b in legend.findChildren(QAbstractButton) if b.text() == "Onar"]
+    assert len(legend_repair) == 1
+    legend_repair[0].click()
+    assert ctx.jobs.wait_idle(10000)
+    assert seen == [True]
+
+    simple_repair = [b for b in simple.findChildren(QAbstractButton) if b.text() == "Onar"]
+    assert len(simple_repair) == 1
+    simple_repair[0].click()
+    assert ctx.jobs.wait_idle(10000)
+    assert seen == [True, True]

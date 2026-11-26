@@ -12,7 +12,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QBrush, QColor, QFont
 from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QCheckBox, QComboBox, QFileDialog,
                                QFormLayout, QFrame, QHBoxLayout, QInputDialog, QLabel, QListWidget,
-                               QListWidgetItem, QMessageBox, QPlainTextEdit, QProgressBar, QRadioButton,
+                               QListWidgetItem, QMessageBox, QProgressBar, QRadioButton,
                                QStackedWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 from ...core import i18n
@@ -24,7 +24,7 @@ from ...ui.widgets import SquishyButton
 from ...ui.widgets.surface import page_surface_qss
 from .guide import GUIDE_HOSTS, GuideView
 from .keytest import KeyTestResult
-from .service import WHISPER_MODELS, LocalRuntime
+from .service import WHISPER_MODELS, LocalRuntime, source_label
 from .strings import K
 
 _KINDS: Tuple[Tuple[str, str], ...] = (
@@ -265,13 +265,11 @@ class SettingsLegendPage(ThemedMixin, QWidget):
         note.setProperty("role", "muted")
         note.setWordWrap(True)
         lay.addWidget(note)
-        self.install_text = QPlainTextEdit()
-        self.install_text.setReadOnly(True)
-        self.install_text.setFont(_mono())
-        lines = [i18n.t(K.INSTALL_NOTE), ""]
-        lines += [f"{label}: {cmd}" for label, cmd in self.service.ffmpeg_hints()]
-        self.install_text.setPlainText("\n".join(lines))
-        lay.addWidget(self.install_text, 1)
+        hint = QLabel(i18n.t(K.REPAIR_HINT))
+        hint.setProperty("role", "muted")
+        hint.setWordWrap(True)
+        lay.addWidget(hint)
+        lay.addStretch(1)
         return page
 
     def _section_profiles(self) -> QWidget:
@@ -438,20 +436,23 @@ class SettingsLegendPage(ThemedMixin, QWidget):
 
     def _refresh_updates(self) -> None:
         info = self.service.tool_info()
+        src = info.sources
         rows = (
-            (i18n.t(K.TOOL_YTDLP), info.ytdlp, K.LED_OK if info.ytdlp else K.TOOL_MISSING, "update"),
-            (i18n.t(K.TOOL_FFMPEG), info.ffmpeg, K.LED_OK if info.ffmpeg else K.TOOL_MISSING, None),
-            (i18n.t(K.TOOL_DENO), info.deno, K.LED_OK if info.deno else K.TOOL_MISSING, None),
+            (i18n.t(K.TOOL_YTDLP), info.ytdlp, source_label(src.get("yt-dlp", "")), "update"),
+            (i18n.t(K.TOOL_FFMPEG), info.ffmpeg, source_label(src.get("ffmpeg", "")), None),
+            (i18n.t(K.TOOL_DENO), info.deno, source_label(src.get("deno", "")), None),
         )
         self.tools_table.setRowCount(len(rows))
-        for r, (name, version, state_key, action) in enumerate(rows):
+        for r, (name, version, state, action) in enumerate(rows):
             self.tools_table.setItem(r, 0, QTableWidgetItem(name))
             self.tools_table.setItem(r, 1, QTableWidgetItem(version or "—"))
-            self.tools_table.setItem(r, 2, QTableWidgetItem(i18n.t(state_key)))
+            self.tools_table.setItem(r, 2, QTableWidgetItem(state))
             if action == "update":
                 btn = SquishyButton(i18n.t(K.UPDATE_NOW), variant="secondary")
                 btn.clicked.connect(self._update_ytdlp)
-                self.tools_table.setCellWidget(r, 3, _actions(btn))
+                repair = SquishyButton(i18n.t(K.BTN_REPAIR), variant="ghost")
+                repair.clicked.connect(self._repair_components)
+                self.tools_table.setCellWidget(r, 3, _actions(btn, repair))
             else:
                 self.tools_table.setCellWidget(r, 3, _actions())
 
@@ -561,6 +562,13 @@ class SettingsLegendPage(ThemedMixin, QWidget):
         try:
             self.service.update_ytdlp()
             self._say(i18n.t(K.UPDATE_QUEUED))
+        except (ValueError, RuntimeError) as exc:
+            self._say(str(exc))
+
+    def _repair_components(self) -> None:
+        try:
+            self.service.repair_components()
+            self._say(i18n.t(K.REPAIR_QUEUED))
         except (ValueError, RuntimeError) as exc:
             self._say(str(exc))
 
