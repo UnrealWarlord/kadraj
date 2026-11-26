@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from ...core.contracts import AUDIO_OUTPUT_EXT
+from . import wavio
 from .mastering import MASTER_SUFFIX
 
 TAKE_PREFIX = "Kayit_"
@@ -57,7 +58,6 @@ def srt_for(wav: Path) -> Path:
 
 def scan_takes(folder: Path) -> List[Take]:
     """Klasördeki ``.wav`` dosyaları (geçici ``.tmp.wav`` hariç), en yeni önce."""
-    import soundfile as sf
     folder = Path(folder)
     if not folder.is_dir():
         return []
@@ -66,7 +66,7 @@ def scan_takes(folder: Path) -> List[Take]:
         if p.suffix.lower() != AUDIO_OUTPUT_EXT or p.name.startswith(".") or ".tmp" in p.stem:
             continue
         try:
-            info = sf.info(str(p))
+            info = wavio.info(p)
             st = p.stat()
         except Exception:
             continue                                               # bozuk/yarım dosya listeyi bozmaz
@@ -79,7 +79,6 @@ def scan_takes(folder: Path) -> List[Take]:
 def waveform_peaks(path: Path, buckets: int = 240, cache_dir: Optional[Path] = None) -> List[float]:
     """Dosyayı ``buckets`` parçaya bölüp her parçanın tepe genliğini (0..1) döner. Önbellek: mtime+boyut anahtarlı."""
     import numpy as np
-    import soundfile as sf
     path = Path(path)
     key = None
     if cache_dir is not None:
@@ -89,20 +88,19 @@ def waveform_peaks(path: Path, buckets: int = 240, cache_dir: Optional[Path] = N
             return [float(v) for v in json.loads(key.read_text(encoding="utf-8"))]
         except (OSError, ValueError):
             pass
-    with sf.SoundFile(str(path)) as f:
-        total = len(f)
-        peaks = np.zeros(buckets)
-        if total:
-            per = max(1, total // buckets)
-            pos = 0
-            while pos < total:
-                data = f.read(min(48000, total - pos), dtype="float32", always_2d=True)
-                if not len(data):
-                    break
-                mono = np.max(np.abs(data), axis=1)
-                idx = (np.arange(pos, pos + len(mono)) // per).clip(max=buckets - 1)
-                np.maximum.at(peaks, idx, mono)
-                pos += len(mono)
+    total = wavio.info(path).frames
+    peaks = np.zeros(buckets)
+    if total:
+        per = max(1, total // buckets)
+        pos = 0
+        for data in wavio.iter_blocks(path, 48000):
+            if pos >= total or not len(data):
+                break
+            data = data[:total - pos]
+            mono = np.max(np.abs(data), axis=1)
+            idx = (np.arange(pos, pos + len(mono)) // per).clip(max=buckets - 1)
+            np.maximum.at(peaks, idx, mono)
+            pos += len(mono)
     peaks = [min(1.0, float(p)) for p in peaks.tolist()]
     if key is not None:
         try:

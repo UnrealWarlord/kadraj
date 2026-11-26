@@ -2,10 +2,14 @@
 
 ``sounddevice`` / PortAudio **tembel** içe aktarılır: kurulu değilse (Docker, CI, başsız sunucu) ya da giriş aygıtı yoksa
 ``list_input_devices()`` boş liste / ``SmartError`` döner; uygulama asla düşmez.
+
+Android'de PortAudio yoktur: aynı üç işlev (aygıt listesi, ayar denetimi, akış fabrikası) ``qt_audio.py``'ye
+(QtMultimedia) gider. Seçim ``audio_backend()``'dedir; ``KADRAJ_AUDIO_BACKEND=qt|portaudio`` zorlar.
 """
 from __future__ import annotations
 
 import errno
+import os
 from dataclasses import dataclass
 from typing import Any, Callable, List, Optional
 
@@ -30,15 +34,40 @@ class InputDevice:
         return f"{self.name}"
 
 
-def _err(code: str, technical: str = "", *, retryable: bool = False, actions=()) -> SmartError:
-    key = f"recorder.err.{code}"
+def _err(code: str, technical: str = "", *, retryable: bool = False, actions=(), text: str = "") -> SmartError:
+    """``audio.<code>`` hatası; metinler ``recorder.err.<text ya da code>`` anahtarlarından (Android'e özel metin
+    için ``text`` verilir, hata kodu aynı kalır)."""
+    key = f"recorder.err.{text or code}"
     return SmartError(f"audio.{code}", t(f"{key}.title"), t(f"{key}.summary"), cause=t(f"{key}.cause"),
                       steps=(t(f"{key}.step1"),), actions=tuple(actions), severity=Severity.ERROR,
                       technical=technical, retryable=retryable, source="recorder")
 
 
+def audio_backend() -> str:
+    """``qt`` (Android: QtMultimedia) ya da ``portaudio`` (masaüstü: sounddevice)."""
+    forced = os.environ.get("KADRAJ_AUDIO_BACKEND", "").strip().lower()
+    if forced in ("qt", "portaudio"):
+        return forced
+    from ... import device
+    return "qt" if device.is_android() else "portaudio"
+
+
 def backend_error(exc: BaseException) -> SmartError:
-    return _err("no_backend", f"{type(exc).__name__}: {exc}")
+    return _no_backend(f"{type(exc).__name__}: {exc}")
+
+
+def _no_backend(technical: str) -> SmartError:
+    return _err("no_backend", technical, text="no_backend_qt" if audio_backend() == "qt" else "")
+
+
+def unsupported_error(code: str, technical: str = "") -> SmartError:
+    """Aygıtın desteklemediği ayar (``unsupported_rate`` / ``unsupported_channels`` / ``open_failed``)."""
+    return _err(code, technical, retryable=True)
+
+
+def permission_error(technical: str = "") -> SmartError:
+    """Mikrofon izni verilmedi. Android'de adımlar telefonun uygulama izinlerini anlatır."""
+    return _err("permission", technical, text="permission_android" if audio_backend() == "qt" else "")
 
 
 def map_audio_error(exc: BaseException) -> SmartError:
@@ -48,12 +77,12 @@ def map_audio_error(exc: BaseException) -> SmartError:
     text = f"{type(exc).__name__}: {exc}"
     low = str(exc).lower()
     if isinstance(exc, PermissionError) or "permission" in low or "access denied" in low:
-        return _err("permission", text)
+        return permission_error(text)
     if isinstance(exc, OSError) and getattr(exc, "errno", None) in (errno.ENOSPC, errno.EDQUOT):
         from ...core.errors import translate
         return translate(exc, {"source": "recorder"})
     if "portaudio library not found" in low or "libportaudio" in low or isinstance(exc, (ImportError,)):
-        return _err("no_backend", text)
+        return _no_backend(text)
     if "-9996" in low or "invalid device" in low or "no default input" in low:
         return _err("no_input", text)
     if "-9997" in low or "invalid sample rate" in low:
@@ -75,6 +104,12 @@ def _sd() -> Any:
 
 def list_input_devices(sd_module: Any = None) -> List[InputDevice]:
     """Giriş kanalı olan aygıtlar (varsayılan işaretli). Backend yoksa ``SmartError``; aygıt yoksa ``[]``."""
+    if sd_module is None and audio_backend() == "qt":
+        from . import qt_audio
+        try:
+            return qt_audio.list_input_devices()
+        except Exception as exc:
+            raise map_audio_error(exc) from exc
     sd = sd_module or _sd()
     try:
         devices = sd.query_devices()
@@ -100,6 +135,12 @@ def no_input_error() -> SmartError:
 
 def check_input(device: Optional[Any], sample_rate: int, channels: int, sd_module: Any = None) -> Optional[SmartError]:
     """Aygıt bu ayarları destekliyor mu? Destekliyorsa ``None``, değilse açıklayıcı ``SmartError``."""
+    if sd_module is None and audio_backend() == "qt":
+        from . import qt_audio
+        try:
+            return qt_audio.check_input(device, sample_rate, channels)
+        except Exception as exc:
+            return map_audio_error(exc)
     sd = sd_module or _sd()
     try:
         sd.check_input_settings(device=device, channels=channels, samplerate=sample_rate, dtype="float32")
@@ -110,7 +151,13 @@ def check_input(device: Optional[Any], sample_rate: int, channels: int, sd_modul
 
 def default_stream_factory(sample_rate: int, channels: int, device: Optional[Any], blocksize: int,
                            callback: Callable[..., None]) -> Any:
-    """Gerçek ``sounddevice.InputStream``. Testler yerine sahte bir fabrika verir."""
+    """Gerçek ``sounddevice.InputStream`` (Android'de ``QAudioSource``). Testler yerine sahte bir fabrika verir."""
+    if audio_backend() == "qt":
+        from . import qt_audio
+        try:
+            return qt_audio.stream_factory(sample_rate, channels, device, blocksize, callback)
+        except Exception as exc:
+            raise map_audio_error(exc) from exc
     sd = _sd()
     try:
         return sd.InputStream(samplerate=sample_rate, channels=channels, dtype="float32", device=device,

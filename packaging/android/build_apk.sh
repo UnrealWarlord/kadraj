@@ -136,7 +136,8 @@ settings = {
     "orientation": "portrait, landscape, portrait-reverse, landscape-reverse",
     "fullscreen": "0",
     "icon.filename": "%(source.dir)s/kadraj/ui/assets/icon/kadraj-512.png",
-    "android.permissions": "android.permission.INTERNET",
+    # İzinler en az (M16): indirme/AI için ağ; ses kaydı için mikrofon (çalışma zamanında sorulur, M18)
+    "android.permissions": "android.permission.INTERNET, android.permission.RECORD_AUDIO",
     "android.archs": "arm64-v8a",
     "android.allow_backup": "False",                                   # ayarlar/kasa bulut yedeğine gitmesin
     "android.accept_sdk_license": "True",
