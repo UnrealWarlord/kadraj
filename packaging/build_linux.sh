@@ -48,7 +48,7 @@ docker build -f packaging/Dockerfile.linux -t "$IMAGE" "$WORK/ctx"
 # Depo salt-okunur bağlanır; çıktı /out (= build/linux/pyi) altına, kullanıcının kendi uid'iyle yazılır.
 # Bileşenler (ffmpeg, ffprobe, deno, yt-dlp) bu adımda indirilir → ağ gerekir (KADRAJ_TOOLS_REUSE ile atlanabilir).
 TOOLS_MOUNT=()
-SEED_CMD='python3.12 -B -m kadraj.core.updater --seed /out/tools && export KADRAJ_TOOLS_DIR=/out/tools'
+SEED_CMD='PYTHONUTF8=1 python3.12 -B -m kadraj.core.updater --seed /out/tools && export KADRAJ_TOOLS_DIR=/out/tools'
 if [ -n "${KADRAJ_TOOLS_REUSE:-}" ]; then
     [ -f "$KADRAJ_TOOLS_REUSE/versions.json" ] || die "KADRAJ_TOOLS_REUSE geçersiz: $KADRAJ_TOOLS_REUSE/versions.json yok"
     TOOLS_MOUNT=(-v "$(cd "$KADRAJ_TOOLS_REUSE" && pwd)":/reuse-tools:ro)

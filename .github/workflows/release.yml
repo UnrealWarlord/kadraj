@@ -143,6 +143,8 @@ jobs:
       # Kullanıcı hiçbir şey kurmasın: ffmpeg, ffprobe, deno ve yt-dlp pakete girer. Kaynaklar kodda yazılı resmî GitHub
       # sürümleridir (core/updater.py); her dosya yayımlanan SHA-256 ile doğrulanır, uyuşmazsa iş düşer.
       - name: Bileşenleri indir (FFmpeg, ffprobe, Deno, yt-dlp; SHA-256 doğrulamalı)
+        env:
+          PYTHONUTF8: "1"                # Windows çalıştırıcısında stdout cp1252 olur; Türkçe harfler çökertmesin
         run: |
           python -B -m kadraj.core.updater --seed build\tools
           if ($LASTEXITCODE -ne 0) { throw "Bileşenler indirilemedi ya da doğrulanamadı (çıkış kodu $LASTEXITCODE)" }

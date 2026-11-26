@@ -4,6 +4,8 @@ Dosya eylemleri (oynat, klasörde göster) gerçek oynatıcı/dosya yöneticisi 
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
@@ -91,7 +93,7 @@ def test_legend_shows_full_recording_path_before_recording(svc, legend):
 
 def test_open_folder_button_opens_the_recording_folder(svc, simple):
     _button(simple, "Klasörü aç").click()
-    assert FakeDesktop.urls == [str(svc.output_folder())]
+    assert [Path(u) for u in FakeDesktop.urls] == [svc.output_folder()]          # Qt '/' verir; Windows'ta '\\' ile eşit sayılsın
     assert simple.location.note.isHidden()
 
 
@@ -130,7 +132,7 @@ def test_play_and_show_in_folder_use_the_saved_file(ctx, svc, simple):
     take = _record_one_take(svc, simple)
     _button(simple.result_card, "Oynat").click()
     _button(simple.result_card, "Klasörde göster").click()
-    assert FakeDesktop.urls == [str(take.path), str(take.path.parent)]
+    assert [Path(u) for u in FakeDesktop.urls] == [take.path, take.path.parent]
 
 
 def test_play_failure_is_explained_on_the_card(ctx, svc, simple):

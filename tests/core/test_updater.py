@@ -130,3 +130,55 @@ def test_ffmpeg_release_picks_highest_branch_and_variant(monkeypatch):
         {"name": "checksums.sha256", "browser_download_url": "https://github.com/x/checksums.sha256"}]
     rel = U.latest_ffmpeg(PLAT, lambda url, timeout=0: {"assets": assets}, lambda url, timeout=0: text)
     assert rel.version == "9.0" and rel.asset.endswith("gpl-9.0.tar.xz")
+
+
+# -- seed (paketleme) -------------------------------------------------------------------------------------
+def test_seed_downloads_ytdlp_even_when_the_pip_module_is_already_the_latest(home, monkeypatch):
+    """CI'daki hata: derleme ortamındaki pip yt-dlp en yeni sürümdü → "güncel" sayılıp hiç indirilmedi."""
+    monkeypatch.setattr(C, "module_ytdlp_version", lambda: "2026.11.23")
+    net = Net(version="2026.11.23")
+    normal = _updater(net).run(big=False, force=True)
+    assert normal.current == ["yt-dlp"] and not net.downloads            # kullanıcı uygulamasında doğru davranış
+    u = U.Updater(get_json=net.get_json, get_text=net.get_text, download=net.download, platform=PLAT, seed=True)
+    rep = u.run(big=False, force=True)
+    assert rep.updated == ["yt-dlp"] and len(net.downloads) == 1 and (home / "yt-dlp").is_file()
+
+
+def test_failing_progress_callback_never_stops_an_update(home):
+    """CI'daki hata: cp1252 konsola 'ı' yazan ilerleme çıktısı UnicodeEncodeError verip bütün güncellemeyi yutuyordu."""
+    def bad(_text, _fraction=None):
+        raise UnicodeEncodeError("charmap", "ı", 0, 1, "karakter eşlenemiyor")
+    rep = _updater(Net()).run(bad, big=False, force=True)
+    assert rep.updated == ["yt-dlp"] and not rep.errors
+
+
+def _patched_updater(monkeypatch, net):
+    real = U.Updater
+    monkeypatch.setattr(U, "Updater", lambda seed=False: real(get_json=net.get_json, get_text=net.get_text,
+                                                              download=net.download, platform=PLAT, seed=seed))
+
+
+def test_seed_with_nothing_staged_reports_a_clear_error_not_a_traceback(home, tmp_path, monkeypatch, capsys):
+    _patched_updater(monkeypatch, Net(offline=True))
+    dest = tmp_path / "araclar"
+    rep = U.seed(dest)                                      # hazırlık klasörü hiç oluşmaz
+    assert rep.offline or rep.errors
+    assert U.main(["--seed", str(dest)]) == 1
+    err = capsys.readouterr().err
+    assert "HATA" in err and "eksik" in err
+
+
+def test_main_survives_a_cp1252_console(home, tmp_path, monkeypatch):
+    import io
+    import sys
+    raw = io.BytesIO()
+    monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(raw, encoding="cp1252", errors="strict"))
+    monkeypatch.setattr(sys, "stderr", io.TextIOWrapper(io.BytesIO(), encoding="cp1252", errors="strict"))
+
+    def fake_seed(dest, progress=None):
+        progress("yt-dlp sürümü sorgulanıyor…", None)       # 'ı' cp1252'de yok
+        return U.Report(updated=["yt-dlp"])
+    monkeypatch.setattr(U, "seed", fake_seed)
+    assert U.main(["--seed", str(tmp_path / "x")]) == 1      # dosyalar yok → eksik; ama çökmeden
+    sys.stdout.flush()
+    assert "ı".encode("utf-8") in raw.getvalue()

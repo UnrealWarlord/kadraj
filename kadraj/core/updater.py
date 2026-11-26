@@ -427,7 +427,14 @@ class Updater:
         ``small_done`` küçük işler (bekleyenleri koyma + yt-dlp + sürüm sorguları) bitince set edilir; böylece açılış
         ekranı büyük indirmeleri beklemeden kapanabilir (iş parçacığı sürer).
         """
-        say = progress or (lambda t, f=None: None)
+        def say(text: str, fraction: Optional[float] = None) -> None:
+            """İlerleme bildirimi YALNIZCA bilgidir: geri çağrı (ör. cp1252 konsola yazan ``print``) hata verse de güncelleme sürer."""
+            if progress is not None:
+                try:
+                    progress(text, fraction)
+                except Exception:  # noqa: BLE001
+                    pass
+
         rep = Report()
         try:
             self.apply_pending(rep)
@@ -453,7 +460,7 @@ class Updater:
                     if rep.offline:
                         break
                     continue
-                cur = installed_version(group)
+                cur = "" if self.seed else installed_version(group)
                 if cur and _vkey(rel.version) <= _vkey(cur):
                     rep.current.append(group)
                     continue
@@ -582,16 +589,19 @@ def seed(dest: Path, progress: Optional[Progress] = None) -> Report:
 
     Geçici bir ``KADRAJ_HOME`` kullanır (gerçek kullanıcı verisine dokunmaz); sonuç ``dest``'te düz klasördür
     (``ffmpeg``, ``ffprobe``, ``deno``, ``yt-dlp``, ``versions.json``)."""
-    with tempfile.TemporaryDirectory(prefix="kadraj-seed-") as home:
+    with tempfile.TemporaryDirectory(prefix="kadraj-seed-", ignore_cleanup_errors=True) as home:
         old = os.environ.get("KADRAJ_HOME")
         os.environ["KADRAJ_HOME"] = home
         try:
             rep = Updater(seed=True).run(progress, force=True)
             src = components.tools_dir()
             dest.mkdir(parents=True, exist_ok=True)
-            for item in src.iterdir():
-                if item.is_file() and item.name != "state.json":
-                    shutil.copy2(item, dest / item.name)
+            if not src.is_dir():
+                rep.errors.append("hiçbir bileşen indirilemedi (hazırlık klasörü oluşmadı)")
+            else:
+                for item in src.iterdir():
+                    if item.is_file() and item.name != "state.json":
+                        shutil.copy2(item, dest / item.name)
             vers = {k: v for k, v in _read_json(dest / components.VERSIONS_FILE).items() if not k.startswith(".")}
             _write_json(dest / components.VERSIONS_FILE, vers)
         finally:
@@ -602,17 +612,36 @@ def seed(dest: Path, progress: Optional[Progress] = None) -> Report:
     return rep
 
 
+def _utf8_stdio() -> None:
+    """GitHub Windows çalıştırıcısında stdout cp1252'dir: 'ı' gibi harfler ``UnicodeEncodeError`` verirdi."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")      # type: ignore[union-attr]
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def main(argv: Optional[List[str]] = None) -> int:
+    _utf8_stdio()
     args = list(sys.argv[1:] if argv is None else argv)
     if len(args) != 2 or args[0] != "--seed":
         print("kullanım: python -m kadraj.core.updater --seed <klasör>", file=sys.stderr)
         return 2
     dest = Path(args[1])
-    rep = seed(dest, lambda t, f: print(t if f is None else f"{t} {int(f * 100)}%", flush=True) if f is None or int(f * 100) % 25 == 0 else None)
+    try:
+        rep = seed(dest, lambda t, f: print(t if f is None else f"{t} {int(f * 100)}%", flush=True)
+                   if f is None or int(f * 100) % 25 == 0 else None)
+    except Exception as exc:  # noqa: BLE001
+        print(f"HATA: bileşenler hazırlanamadı: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
     missing = [n for n in components.NAMES if not (dest / components.exe_name(n)).is_file()]
-    print("güncellenen:", rep.updated, "hatalar:", rep.errors, "eksik:", missing)
+    print("güncellenen:", rep.updated, "| hatalar:", rep.errors, "| eksik:", missing, "| çevrimdışı:", rep.offline)
     print(json.dumps(_read_json(dest / components.VERSIONS_FILE), ensure_ascii=False))
-    return 0 if not rep.errors and not missing else 1
+    if rep.errors or missing or rep.offline:
+        print(f"HATA: bileşen hazırlığı tamamlanamadı — eksik: {missing or '-'}; hatalar: {rep.errors or '-'}"
+              + ("; ağa ulaşılamadı" if rep.offline else ""), file=sys.stderr)
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
