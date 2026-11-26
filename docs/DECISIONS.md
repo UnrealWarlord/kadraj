@@ -54,3 +54,20 @@ Kullanıcı, thread'lerden gelen karar sorularında önerilen seçeneğin koordi
 | 9 | FFmpeg derlemesi (B4) | Sonnet'in seçtiği **GPL** derlemesi onaylandı | LGPL derlemede `libx264`/`libx265` yok; CPU'da H.264/H.265 dışa aktarma ve vekil dosya çalışmazdı. FFmpeg ayrı süreç olarak çalışır, uygulama kodu MIT kalır; lisans ve kaynak bağlantısı `THIRD_PARTY_NOTICES.md`'de |
 | 10 | Uygulama ikonu ve marka kuralı | Vizör işareti; "from İnsibağ" imzası yalnız ≥256 px boyutlarda, sağ altta, düşük opaklıkta | 16–128 px'te imza okunmaz, yalnız gürültü olur; büyük boyutlarda kural korunur |
 | 11 | Anthropic `temperature` (API `2026-10-21`) | Bu API sürümünde `temperature` hiçbir modele gönderilmez; yalnız Ayarlar'dan eski sürüme dönülürse eski modellerde gönderilir | `2026-10-21` sürümünde örnekleme parametreleri her modelde 400 verir; eski bir model seçildiğinde istek düşüyordu |
+
+## Mobil kararları (2026-11-26, Erol onayladı)
+
+Kaynak: `docs/MOBILE_PLAN.md`. Erol önerilen seçenekleri onayladı ve sonraki kararları Claude'a bıraktı (M9).
+
+| # | Konu | Seçilen | Neden |
+|---|---|---|---|
+| M1 | Telefon arayüzü | Yalnız Basit Mod, dokunmatik düzen; video düzenleme sade (kes, birleştir, müzik ekle, şablonla dışa aktar) | Legend telefona sığmaz; telefon işlemcisi tam NLE için zayıf |
+| M2 | Tablet arayüzü | Masaüstündeki gibi: Basit + Legend Mode ve tam düzenleyici; aynı APK, en küçük genişlik ≥ 600 dp ise tablet düzeni; büyük dokunma hedefleri | Erol'un isteği: "tablet için ayrı oluştur, pc'deki gibi olsun". Tek APK hem güncellemeyi hem dağıtımı basit tutar |
+| M3 | İşlemci mimarisi | Yalnız `arm64-v8a` | CPython Android'de yalnız aarch64/x86_64 destekler; 32-bit cihazlar çok eski |
+| M4 | Anahtar kasası | İlk sürümde mevcut PBKDF2 parola yedeği; Android Keystore sonra | Masaüstünde zaten var ve sınanmış; Keystore pyjnius ile ayrı iş |
+| M5 | iOS | Sonraya | Türkiye'de App Store'suz genel dağıtım yok; Apple hesabı gerekir |
+| M6 | Depo public/private | 7. adımda (CI) karar | Release'in kime görüneceğini belirler; derlemeyi etkilemez |
+| M7 | Sürüm ve yayın | Bütün adımlar geçince: tam test + `--selftest`, bulunan hatalar Erol'a raporlanır; sonra `mobile` → `main` (yerel) ve "Sürüm 3.0.0" commit'i. Push Erol'da, Actions kısmı Claude'da | Erol: "hepsi bitince commit v3.0.0 olarak yap ben pushlarım sen action kısımlarını halledersin", "commit etmeden önce sistemde hata varsa onları da söyle" |
+| M8 | Derleme ortamı | Remote Control yok. APK derleme Claude'un kendi bulut makinesinde Docker içinde (`kadraj-android-build` imajı, `kadraj-android-sdk` birimi); imaj ve birim adımlar arasında saklanır, iş bitince silinir. Kod Erol'un depo klasörüne git bundle ile aktarılır | Erol bilgisayarının uzaktan kullanılmasını istemiyor; cihazdaki yalıtılmış klasör ortamında ağ ve Docker yok |
+| M9 | Karar yetkisi | Kararları Claude alır, önerilen seçeneği seçer, burada listeler | Erol: "kararları bundan sonra kendin al", "recommended kısımları benim için uygundur" |
+| M10 | En düşük Android sürümü | Android 9 (API 28); derleme API'si 35 | PySide6 6.12'nin Android aracı bunları sabitliyor (Qt'nin alt sınırı); plandaki "Android 8+" düzeltildi |
