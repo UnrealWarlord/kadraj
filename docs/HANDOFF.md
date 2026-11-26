@@ -16,3 +16,12 @@ Her satır: `Adım · thread · durum · devir notu`. Commit'ler yalnızca yerel
 | Düzeltme · varsayılan dil Türkçe, dilden bağımsız selftest | Sonnet | ✓ | 2f756ed | — |
 | 8c · Legend analitik paneli + İndirici/Ayarlar kontrastı | Haiku | ✓ | cf6dca5 | `docs/steps/STEP_8c.md` |
 | Son kontrol | Koordinatör | ✓ Docker (Python 3.12, ağ kapalı, Türkçe yerel ayar yok): 982 passed, selftest 34/34, 14 ekran iki modda · temiz `.venv` (Python 3.14, yalnız `requirements.txt`): 958 passed (düzeltmelerden önce) · gerçek keyring gidiş-dönüş ✓, kayıt kalmadı · doğrulama imajları ve venv silindi | — | — |
+
+## Mobil (Android) adımları · dal `mobile`
+
+Plan: `docs/MOBILE_PLAN.md` · kararlar: `docs/DECISIONS.md` → "Mobil kararları". Derleme Claude'un bulut makinesinde Docker'da (M8).
+
+| Adım | Thread | Durum | Commit | Devir notu |
+|---|---|---|---|---|
+| M1 · Keşif: merhaba-dünya APK + bağımlılık matrisi | Claude (koordinatör thread'i) | ✓ APK derlendi (170 MB, arm64, debug imzalı) · emülatör yok (KVM yok), cihaz denemesi Erol'da | (bu commit) | `docs/steps/MOBILE_1.md` (yalnız `## DEVİR`) |
+
