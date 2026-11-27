@@ -10,7 +10,13 @@ p4a, şablonları (``AndroidManifest.xml`` vb.) dağıtım klasörüne yazdıkta
    "Click again to close the app" diyordu (geri tuşu Qt'ye ancak ikinci basışta ulaşıyor, ses tuşları ilk basışta
    çalışmıyordu). Tuşlar artık doğrudan Qt'ye gider; geri tuşunu uygulama karşılar (``kadraj/ui/shell``).
 
-İkisi de birden çok kez çalıştırılabilir (dağıtım klasörü derlemeler arasında korunur). Beklenen metin bulunamazsa
+3. Qt yükleyicisinin açılış listesinden (``res/values/libs.xml``) PySide6'nın Python bağlantı modülleri
+   (``QtCore.abi3.so`` gibi, adı ``lib`` ile başlamayanlar) çıkarılır. Android, APK'daki yerel kütüphanelerden yalnız
+   ``lib*.so`` adlıları ``nativeLibraryDir``'e açar; Qt yükleyicisi bu modülleri orada arayıp bulamayınca uygulama
+   açılışta kapanıyordu (emülatör denemesi, "QtWidgets.abi3.so not found"). Modüller site-packages'tadır ve Python
+   ``import PySide6.QtWidgets`` ile oradan yükler.
+
+Üçü de birden çok kez çalıştırılabilir (dağıtım klasörü derlemeler arasında korunur). Beklenen metin bulunamazsa
 derleme durur: p4a sürümü değiştiyse kancanın da güncellenmesi gerekir.
 """
 from __future__ import annotations
@@ -50,6 +56,16 @@ def patch_activity(text: str) -> str:
     return patched
 
 
+#: libs.xml'de ``<item>arm64-v8a;QtWidgets.abi3.so</item>`` gibi, adı "lib" ile başlamayan .so öğeleri
+NON_LIB_ITEM = re.compile(r"\n?[ \t]*<item>[^;<]+;(?!lib)[^<]*\.so</item>")
+
+
+def patch_libs(text: str) -> str:
+    if "load_local_libs" not in text:
+        raise SystemExit("KADRAJ kancası: libs.xml içinde load_local_libs yok (python-for-android değişmiş olabilir)")
+    return NON_LIB_ITEM.sub("", text)
+
+
 def _rewrite(path: Path, fn) -> None:
     if not path.is_file():
         raise SystemExit(f"KADRAJ kancası: {path} yok")
@@ -63,3 +79,4 @@ def _rewrite(path: Path, fn) -> None:
 def after_apk_build(toolchain) -> None:  # noqa: ARG001 — p4a imzası
     _rewrite(Path("src/main/AndroidManifest.xml"), patch_manifest)
     _rewrite(Path("src/main/java/org/kivy/android/PythonActivity.java"), patch_activity)
+    _rewrite(Path("src/main/res/values/libs.xml"), patch_libs)

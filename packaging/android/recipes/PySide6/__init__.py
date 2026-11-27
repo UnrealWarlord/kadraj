@@ -145,6 +145,8 @@ class PySideRecipe(PythonRecipe):
                 safe_extract(zf, member, site_dir)
             total = 0
             for base, member in sorted(native.items()):
+                if not base.startswith("lib"):            # bağlantı modülü (QtCore.abi3.so…): site-packages'ta;
+                    continue                              # Android lib*.so dışını nativeLibraryDir'e açmaz
                 with zf.open(member) as src, open(libs_dir / base, "wb") as dst:
                     shutil.copyfileobj(src, dst)
                 total += zf.getinfo(member).file_size

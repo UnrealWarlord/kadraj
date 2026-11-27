@@ -187,6 +187,9 @@ cp "$built" "$out"
 for cls in org/insibag/kadraj/KadrajFiles org/insibag/kadraj/Bridge; do
   unzip -p "$out" 'classes*.dex' | grep -ac "L$cls;" >/dev/null || { echo "HATA: APK'da $cls yok" >&2; exit 1; }
 done
+# Android yalnız lib*.so adlı yerel kütüphaneleri nativeLibraryDir'e açar; başka adlı .so orada bulunmaz
+odd=$(unzip -Z1 "$out" 'lib/*' | grep -vE '^lib/[^/]+/lib[^/]*\.so$' || true)
+[ -z "$odd" ] || { echo "HATA: APK'da lib*.so adında olmayan yerel dosya (cihaza açılmaz): $odd" >&2; exit 1; }
 # Kanca (p4a_hook.py) sağlayıcıyı manifest'e, android.add_resources uyarlanır simgeyi pakete koymuş olmalı
 aapt2=$(ls "$HOME"/.buildozer/android/platform/android-sdk/build-tools/*/aapt2 2>/dev/null | sort -V | tail -1 || true)
 if [ -n "$aapt2" ]; then
@@ -194,6 +197,9 @@ if [ -n "$aapt2" ]; then
   printf '%s\n' "$manifest" | grep -c "org.insibag.kadraj.KadrajFiles" >/dev/null \
     || { echo "HATA: manifest'te dosya sağlayıcı yok (p4a.hook çalışmadı)" >&2; exit 1; }
   resources=$("$aapt2" dump resources "$out")
+  # Qt yükleyicisi açılışta libs.xml'deki her dosyayı yükler; ilk eksikte uygulama kapanır (p4a_hook.py: patch_libs)
+  bad=$(printf '%s\n' "$resources" | grep -oE 'arm64-v8a;[^" ]+\.so' | grep -v ';lib' || true)
+  [ -z "$bad" ] || { echo "HATA: libs.xml'de cihazda bulunamayacak kütüphane: $bad" >&2; exit 1; }
   printf '%s\n' "$resources" | grep -A3 "mipmap/icon$" | grep -c "anydpi" >/dev/null \
     || { echo "HATA: APK'da uyarlanır simge yok (android.add_resources)" >&2; exit 1; }
 else

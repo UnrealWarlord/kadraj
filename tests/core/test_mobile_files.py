@@ -380,6 +380,44 @@ def test_p4a_hook_adds_the_provider_and_frees_the_back_key():
         hook.patch_activity("public class PythonActivity {}")         # p4a değiştiyse derleme durur
 
 
+# python-for-android'in Qt önyüklemesinin ürettiği libs.xml (libs.tmpl.xml, Widgets + Core ile)
+LIBS_XML = """<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <array name="bundled_libs">
+    </array>
+    <array name="qt_libs">
+        <item>arm64-v8a;c++_shared</item>
+        <item>arm64-v8a;Qt6Widgets_arm64-v8a</item>
+        <item>arm64-v8a;Qt6Core_arm64-v8a</item></array>
+    <array name="load_local_libs">
+        <item>arm64-v8a;libplugins_platforms_qtforandroid_arm64-v8a.so</item>
+        <item>arm64-v8a;libshiboken6.abi3.so</item>
+        <item>arm64-v8a;libpyside6.abi3.so</item>
+        <item>arm64-v8a;QtWidgets.abi3.so</item>
+        
+        <item>arm64-v8a;QtCore.abi3.so</item>
+        </array>
+    <string name="static_init_classes"></string>
+</resources>
+"""
+
+
+def test_p4a_hook_drops_python_bindings_from_the_qt_startup_list():
+    """Android yalnız lib*.so'yu nativeLibraryDir'e açar: Qt yükleyicisi QtWidgets.abi3.so'yu orada bulamayınca
+    uygulama açılışta kapanıyordu (emülatör denemesi). Bağlantı modülleri listeden çıkar, gerisi kalır."""
+    hook = _hook()
+    patched = hook.patch_libs(LIBS_XML)
+    assert "QtWidgets.abi3.so" not in patched and "QtCore.abi3.so" not in patched
+    for keep in ("libplugins_platforms_qtforandroid_arm64-v8a.so", "libshiboken6.abi3.so", "libpyside6.abi3.so",
+                 "Qt6Widgets_arm64-v8a", "c++_shared"):
+        assert keep in patched
+    import xml.etree.ElementTree as ET
+    ET.fromstring(patched)                                              # hâlâ geçerli XML
+    assert hook.patch_libs(patched) == patched
+    with pytest.raises(SystemExit):
+        hook.patch_libs("<resources/>")                                 # p4a değiştiyse derleme durur
+
+
 def test_java_bridge_and_python_agree_on_the_protocol():
     java = (ROOT / "packaging" / "android" / "java" / "org" / "insibag" / "kadraj" / "Bridge.java").read_text(encoding="utf-8")
     assert f"PROTOCOL = {bridge.PROTOCOL};" in java

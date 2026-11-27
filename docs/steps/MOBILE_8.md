@@ -92,6 +92,17 @@ Masaüstünden kalan (v2.0.0'da da var, bu işte değişmedi):
   kaynak arşivi 66 MB; deneme anahtarıyla imza v2 + v3 ve 16 KB hizası doğrulandı.
 - Emülatör ve gerçek cihaz yok (KVM yok): ilk emülatör denemesi GitHub'daki `android-smoke` işinde.
 
+## Sürüm sonrası düzeltmeler (2026-11-27)
+
+- **Android açılışta kapanıyordu** (v3.0.0'ın APK'sı, GitHub'daki ilk `android-smoke`): Qt yükleyicisi açılış
+  listesindeki (`libs.xml`) PySide6 bağlantı modüllerini (`QtWidgets.abi3.so`…) `nativeLibraryDir`'de arıyor; Android
+  APK'dan yalnız `lib*.so` adlı dosyaları oraya açtığı için bulamayıp uygulamayı kapatıyordu. Düzeltme:
+  `p4a_hook.py` (`patch_libs`) bu öğeleri listeden çıkarır (modüller site-packages'tan Python ile yüklenir);
+  PySide6 tarifi bu modülleri yerel klasöre kopyalamaz; `build_apk.sh` APK'da `lib*.so` dışı yerel dosya ya da
+  listede `lib` ile başlamayan öğe görürse durur. Test: `test_p4a_hook_drops_python_bindings_from_the_qt_startup_list`.
+- **Windows testleri:** Android'e özgü 4 POSIX testi Windows'ta atlanır; kayıt sayfasının aygıt satırı kelime
+  kaydırmalı (Windows çalıştırıcısındaki uzun mikrofon adı telefon genişliğini aşıyordu).
+
 ## Kararlar
 
 - Karar: (M29) 3.0.0 birleştirmesi `main`'de `mobile`'ın `--no-ff` birleştirmesi + ayrı "Sürüm 3.0.0" commit'i
