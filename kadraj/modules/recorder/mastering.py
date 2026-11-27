@@ -181,7 +181,7 @@ def master_file(src: Path, *, settings: Optional[MasterSettings] = None, ffmpeg:
     Hatalar ``SmartError`` olarak atılır (FFmpeg yok → "FFmpeg bulunamadı"; ffmpeg hatası → Haiku'nun hata sözlüğü).
     İptal → ``MasterCancelled`` (yarım çıktı silinir).
     """
-    import soundfile as sf
+    from . import wavio
     src = Path(src)
     s = (settings or MasterSettings()).clamped()
     exe = ffmpeg or find_ffmpeg()
@@ -190,7 +190,7 @@ def master_file(src: Path, *, settings: Optional[MasterSettings] = None, ffmpeg:
     if not src.is_file():
         raise translate(FileNotFoundError(2, "No such file", str(src)), {"source": "recorder", "path": str(src)})
     try:
-        info = sf.info(str(src))
+        info = wavio.info(src)
     except Exception as exc:                                         # bozuk/yanlış biçimli dosya
         raise translate(exc, {"tool": "ffmpeg", "source": "recorder", "path": str(src)}) from exc
     duration, rate = float(info.duration), int(info.samplerate)

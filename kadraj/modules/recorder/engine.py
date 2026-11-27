@@ -2,7 +2,8 @@
 
 Gerçek zamanlı kural: **geri çağrı hafiftir** (kopyala, kazanç, VU, kapı) ve engellemez; diske yazma ve LUFS/true-peak
 analizi ayrı bir **işçi iş parçacığında** (sınırlı kuyruk; dolarsa blok düşer ve ``dropped_blocks`` artar).
-Çıktı **yalnızca ``.wav``**: ``soundfile`` ile PCM_24; başlık ~1 sn'de bir güncellenir (çökmede dosya okunabilir kalır).
+Çıktı **yalnızca ``.wav``**: PCM_24 (masaüstünde ``soundfile``, Android'de ``wavio``'nun standart kütüphane
+yazıcısı); başlık ~1 sn'de bir güncellenir (çökmede dosya okunabilir kalır).
 
 Akış fabrikası enjekte edilebilir (testler/CI): ``factory(sample_rate, channels, device, blocksize, callback)`` →
 ``start()/stop()/close()`` yöntemli nesne. Gerçek aygıt yoksa ``SmartError`` atılır, çökme olmaz.
@@ -19,6 +20,7 @@ from typing import Any, Callable, List, Optional
 import numpy as np
 
 from ...core.contracts import AUDIO_OUTPUT_EXT, SmartError
+from . import wavio
 from .devices import default_stream_factory, map_audio_error
 from .dsp import (FLOOR_DB, GateParams, LevelMeter, LevelSnapshot, LoudnessMeter, LoudnessSnapshot, NoiseGate,
                   db_to_lin)
@@ -56,17 +58,15 @@ class RecordingResult:
 
 
 class WavWriter:
-    """``soundfile`` ile PCM_24 WAV yazıcısı (yalnızca işçi iş parçacığından çağrılır)."""
+    """PCM_24 WAV yazıcısı (yalnızca işçi iş parçacığından çağrılır): ``soundfile`` ya da ``wavio`` yedeği."""
 
     def __init__(self, path: Path, sample_rate: int, channels: int) -> None:
         if Path(path).suffix.lower() != AUDIO_OUTPUT_EXT:
             raise ValueError(f"ses çıktısı yalnızca {AUDIO_OUTPUT_EXT} olabilir: {path}")
-        import soundfile as sf
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         self.path = Path(path)
         self.sr, self.ch = sample_rate, channels
-        self._f = sf.SoundFile(str(path), mode="w", samplerate=sample_rate, channels=channels, subtype=SUBTYPE,
-                               format="WAV")
+        self._f = wavio.open_writer(self.path, sample_rate, channels)              # SUBTYPE: PCM_24
         self.frames = 0
         self._since_flush = 0
 
@@ -231,6 +231,12 @@ class RecorderEngine:
         with self._lock:
             if not self._take_open or self._path is None:
                 raise RuntimeError("kayıt yapılmıyor")
+            drain = getattr(self._stream, "drain", None)              # Qt akışı: arabellekte kalan da yazılsın
+            if callable(drain):
+                try:
+                    drain()
+                except Exception:
+                    pass
             done = threading.Event()
             box: dict = {}
             self._put(("stop", done, box), block=True)

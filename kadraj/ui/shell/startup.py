@@ -34,13 +34,26 @@ def _module(name: str) -> bool:
         return False
 
 
+def _audio_backend() -> str:
+    """Ses girişi: masaüstünde ``portaudio`` (sounddevice), Android'de ``qt`` (QtMultimedia)."""
+    try:
+        from ...modules.recorder.devices import audio_backend
+        return audio_backend()
+    except Exception:
+        return "portaudio"
+
+
+def _audio_ok() -> bool:
+    return _module("PySide6.QtMultimedia") if _audio_backend() == "qt" else _module("sounddevice")
+
+
 #: (anahtar, etiket, denetim) — sıra splash'te gösterilen sıradır.
 CHECKS: List[Tuple[str, str, Callable[[], bool]]] = [
     ("ffmpeg", "FFmpeg", lambda: components.have("ffmpeg") and components.have("ffprobe")),
     ("yt-dlp", "yt-dlp", lambda: components.ytdlp_choice() is not None or _module("yt_dlp")),
-    ("deno", "Deno", lambda: components.have("deno")),
+    ("deno", "Deno", lambda: components.js_runtime() is not None),          # Android'de QuickJS (etiket aşağıda)
     ("ollama", "Ollama", lambda: _which("ollama")),
-    ("portaudio", "PortAudio", lambda: _module("sounddevice")),
+    ("portaudio", "PortAudio", _audio_ok),                                  # Android'de Qt Multimedia (etiket aşağıda)
 ]
 
 
@@ -51,6 +64,10 @@ def detect_tools() -> Dict[str, ToolStatus]:
             ok = bool(fn())
         except Exception:
             ok = False
+        if key == "deno":
+            label = components.js_runtime_label()
+        elif key == "portaudio" and _audio_backend() == "qt":
+            label = "Qt Multimedia"
         out[key] = ToolStatus(key, label, ok)
     return out
 

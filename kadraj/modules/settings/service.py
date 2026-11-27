@@ -25,6 +25,7 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from PySide6.QtCore import QObject, Signal
 
+from ... import device
 from ...core import components, i18n
 from ...core.contracts import Job, PingResult, SmartError, Topics, UiMode
 from ...storage import cache, disk, folders, profiles
@@ -85,10 +86,26 @@ def parse_ffmpeg_version(text: Any) -> str:
     return match.group(1) if match else ""
 
 
+def js_tool_key() -> str:
+    """YouTube JS çözücüsü satırının etiketi: Android'de QuickJS (APK'da gelir), başka yerde Deno."""
+    return K.TOOL_QUICKJS if device.is_android() else K.TOOL_DENO
+
+
+def update_note_key() -> str:
+    """Güncelleme notunun anahtarı: Android'de açılışta yalnız yt-dlp denetlenir (FFmpeg uygulamayla gelir)."""
+    return K.ANDROID_TOOLS_NOTE if device.is_android() else K.UPDATE_STARTUP_NOTE
+
+
+def repair_hint_key() -> str:
+    """"Onar" açıklamasının anahtarı: Android'de yalnız yt-dlp yeniden indirilebilir."""
+    return K.ANDROID_REPAIR_HINT if device.is_android() else K.REPAIR_HINT
+
+
 def source_label(source: Any) -> str:
     """Bileşenin nereden geldiği (``core/components.py`` kaynağı) sade etiketi: Pakette / Güncellendi / Sistemde / Yok."""
     key = {"bundled": K.SOURCE_BUNDLED, "updated": K.SOURCE_UPDATED, "system": K.SOURCE_SYSTEM,
-           "env": K.SOURCE_SYSTEM, "module": K.SOURCE_SYSTEM}.get(str(source or ""), K.SOURCE_MISSING)
+           "env": K.SOURCE_SYSTEM, "module": K.SOURCE_SYSTEM,
+           "android": K.SOURCE_ANDROID}.get(str(source or ""), K.SOURCE_MISSING)
     return i18n.t(key)
 
 
@@ -224,7 +241,9 @@ class SettingsService(QObject):
 
     # -- API kasası --------------------------------------------------------
     def vault_state(self) -> Tuple[str, str]:
-        """Kasa durumu ve kısa mesaj: ``ready`` | ``locked`` | ``empty`` | ``error``."""
+        """Kasa durumu ve kısa mesaj: ``ready`` | ``locked`` | ``empty`` | ``needs_passphrase`` | ``error``.
+
+        ``needs_passphrase``: kasa henüz yok ve sistem anahtar zinciri yok (Android); ilk anahtardan önce parola."""
         status = getattr(self._vault(), "status", None)
         if not callable(status):
             return "ready", ""
@@ -235,7 +254,32 @@ class SettingsService(QObject):
             return "locked", i18n.t(K.VAULT_LOCKED)
         if st.state == "error":
             return "error", st.error.summary if st.error else i18n.t(K.VAULT_ERROR)
+        if st.state == "empty" and not self._keyring_available():
+            return "needs_passphrase", i18n.t(K.VAULT_NEEDS_PASS)
         return st.state, ""
+
+    def _keyring_available(self) -> bool:
+        probe = getattr(self._vault(), "keyring_available", None)
+        return bool(_safe(probe, default=True)) if callable(probe) else True
+
+    def set_vault_passphrase(self, passphrase: str, repeat: str) -> None:
+        """Kasayı parola kipinde kurar (anahtar zinciri yoksa; Android). Parola hiçbir yere yazılmaz."""
+        if passphrase != repeat:
+            raise ValueError(i18n.t(K.PASS_MISMATCH))
+        if len(passphrase) < 8:
+            raise ValueError(i18n.t(K.PASS_SHORT))
+        self._vault().initialize(passphrase)                # kasa zaten varsa SmartError
+        self.changed.emit("keys")
+
+    def unlock_vault(self, passphrase: str) -> None:
+        """Parola kipindeki kasayı bu oturum için açar. Yanlış parola → ``SmartError`` (vault.wrong_passphrase)."""
+        self._vault().unlock(passphrase)
+        self.changed.emit("keys")
+
+    def reset_vault(self) -> None:
+        """Kasayı sıfırlar (parola unutuldu, dosya bozuk…): eski dosya ``.bad`` olarak yedeklenir, anahtarlar gider."""
+        self._vault().reset()
+        self.changed.emit("keys")
 
     def key_providers(self) -> List[Any]:
         # anahtarını başka bir servisle paylaşan servis (ör. OpenAI görsel → OpenAI) ayrı satır olmaz: kasada tek kayıt, tek satır
@@ -452,12 +496,13 @@ class SettingsService(QObject):
             else:
                 code, out = self._run([exe, "-version"], 5.0)
                 ffmpeg = parse_ffmpeg_version(out) if code == 0 else ""
-        deno = components.find("deno")
+        js_name = components.QUICKJS if device.is_android() else "deno"      # "deno" satırı: JS çözücüsü
+        deno = components.find(js_name)
         ytdlp = components.ytdlp_choice()
         sources = {"yt-dlp": ytdlp.source if ytdlp else "", "ffmpeg": ff_hit.source if ff_hit else "",
                    "deno": deno.source if deno else ""}
         self._tools = ToolInfo(_ytdlp_version(), ffmpeg, exe,
-                               (deno.version or components.probe_version("deno")) if deno else "", sources)
+                               (deno.version or components.probe_version(js_name)) if deno else "", sources)
         self._tools_loaded = True
         self.changed.emit("tools")
 

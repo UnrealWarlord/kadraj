@@ -46,8 +46,8 @@ def classify(exc: BaseException, warnings: Iterable[str] = ()) -> Optional[str]:
     if _has(text, *_BOT) and "age" not in text:
         return "BOT"
     if _has(text, *_FORMAT):
-        # YouTube'da Deno yoksa "format yok" büyük olasılıkla JS çözücü eksikliğidir.
-        return "JS" if ("youtube" in text and not components.have("deno")) else "FORMAT"
+        # YouTube'da JS çalıştırıcısı (Deno / Android'de QuickJS) yoksa "format yok" büyük olasılıkla çözücü eksikliğidir.
+        return "JS" if ("youtube" in text and components.js_runtime() is None) else "FORMAT"
     if _has(text, "unable to extract", "please report this issue", "update yt-dlp", "nsig"):
         return "OUTDATED"
     return None

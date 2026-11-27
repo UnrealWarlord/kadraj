@@ -16,3 +16,15 @@ Her satır: `Adım · thread · durum · devir notu`. Commit'ler yalnızca yerel
 | Düzeltme · varsayılan dil Türkçe, dilden bağımsız selftest | Sonnet | ✓ | 2f756ed | — |
 | 8c · Legend analitik paneli + İndirici/Ayarlar kontrastı | Haiku | ✓ | cf6dca5 | `docs/steps/STEP_8c.md` |
 | Son kontrol | Koordinatör | ✓ Docker (Python 3.12, ağ kapalı, Türkçe yerel ayar yok): 982 passed, selftest 34/34, 14 ekran iki modda · temiz `.venv` (Python 3.14, yalnız `requirements.txt`): 958 passed (düzeltmelerden önce) · gerçek keyring gidiş-dönüş ✓, kayıt kalmadı · doğrulama imajları ve venv silindi | — | — |
+
+## Mobil (Android) adımları · dal `mobile`
+
+Plan: `docs/MOBILE_PLAN.md` · kararlar: `docs/DECISIONS.md` → "Mobil kararları". Derleme Claude'un bulut makinesinde Docker'da (M8).
+
+| Adım | Thread | Durum | Commit | Devir notu |
+|---|---|---|---|---|
+| M1 · Keşif: merhaba-dünya APK + bağımlılık matrisi | Claude (koordinatör thread'i) | ✓ APK derlendi (170 MB, arm64, debug imzalı) · emülatör yok (KVM yok), cihaz denemesi Erol'da | `f064e7f` | `docs/steps/MOBILE_1.md` (yalnız `## DEVİR`) |
+| M2 · Platform katmanı: cihaz algılama, Android klasörleri, araç kaynakları | Claude (koordinatör thread'i) | ✓ `kadraj/device.py`, Android yolları, FFmpeg yalnız APK'dan, güncelleyici yalnız yt-dlp · masaüstü testleri aynen geçiyor | `ee26535` | `docs/steps/MOBILE_2.md` (yalnız `## DEVİR`) |
+| M3 · FFmpeg + QuickJS gömme, yt-dlp, gerçek uygulama APK'sı | Claude (koordinatör thread'i) | ✓ FFmpeg 9.1/ffprobe/QuickJS-ng statik arm64 · qemu sınamaları 17/17 (uçtan uca indirme dahil) · inceltilmiş PySide6 tarifi · açılış hatası ekranda · cihaz denemesi Erol'da | `c2f7b3a` | `docs/steps/MOBILE_3.md` (yalnız `## DEVİR`) |
+| M4 · Ses kaydı: QtMultimedia girişi, mikrofon izni, soundfile'sız .wav | Claude (koordinatör thread'i) | ✓ `QAudioSource` (Android'de AAudio) · izin kayıt/test anında · gerçek Qt ses yolu PulseAudio sanal mikrofonuyla 4/4 · tümü 1178 geçti · selftest ✓ · cihaz denemesi Erol'da | `79b805c` | `docs/steps/MOBILE_4.md` (yalnız `## DEVİR`) |
+| M5 · Anahtar kasası: parola kipi, saf Python Fernet, Ayarlar'da parola | Claude (koordinatör thread'i) | ✓ `cryptography`'siz Fernet (standart vektörler + iki yönlü uyum) · parola belirle/kilidi aç/parolamı unuttum (Basit + Legend) · hata kartı düğmeleri çalışıyor · selftest ✓ · cihaz denemesi Erol'da | (bu commit) | `docs/steps/MOBILE_5.md` (yalnız `## DEVİR`) |

@@ -10,6 +10,8 @@ Kurallar
 * **Hiçbir otomasyon kendiliğinden çalışmaz:** gürültü kapısı varsayılan KAPALI; auto-gain yalnızca öneri üretir
   (``apply_suggested_gain`` kullanıcı eylemidir); yazıya çevirme ve mastering yalnızca ``transcribe``/``master`` çağrılınca.
 * Giriş aygıtı/PortAudio yoksa (Docker/CI) **SmartError** (``audio.no_input`` / ``audio.no_backend``), çökme yok.
+* Android'de ses girişi QtMultimedia'dır (``qt_audio.py``) ve mikrofon izni kayıt/test başlamadan istenir
+  (``permission.py``): izin penceresi açıkken servis "idle" kalır, izin gelince istenen iş kendiliğinden başlar.
 * Ağ gerekmez (faster-whisper modeli önbellekteyse çevrimdışı çalışır; yoksa indirme hatası ``SmartError``).
 """
 from __future__ import annotations
@@ -29,6 +31,7 @@ from ...core.contracts import (AUDIO_OUTPUT_EXT, Job, JobStatus, Severity, Smart
 from ...core.errors import translate
 from ...storage.folders import folder_for
 from . import devices as dev
+from . import permission as mic_permission
 from .dsp import (SIMPLE_GATE, TARGET_DBFS, GateParams, LevelAnalysis, LevelSnapshot, LoudnessSnapshot,
                   analyze_level)
 from .engine import EngineSnapshot, RecorderEngine
@@ -103,9 +106,12 @@ class RecorderService(QObject):
     def __init__(self, ctx: Any = None, *, stream_factory: Optional[Callable[..., Any]] = None,
                  device_lister: Optional[Callable[[], List[dev.InputDevice]]] = None,
                  clock: Callable[[], float] = time.monotonic, wall: Callable[[], float] = time.time,
-                 min_free_bytes: int = MIN_FREE_BYTES) -> None:
+                 min_free_bytes: int = MIN_FREE_BYTES,
+                 mic: Optional[mic_permission.MicPermission] = None) -> None:
         super().__init__(ctx if isinstance(ctx, QObject) else None)
         self.ctx = ctx
+        self._mic = mic or mic_permission.default()
+        self._asking_permission = False
         self._injected_factory = stream_factory is not None
         self.engine = RecorderEngine(stream_factory)
         self._device_lister = device_lister or dev.list_input_devices
@@ -346,12 +352,46 @@ class RecorderService(QObject):
         else:
             self._timer.stop()
 
-    def start_recording(self) -> Path:
-        """Kaydı başlatır; ``.wav`` yolunu döner. Hazır değilse ``SmartError`` atar (aygıt yok, disk dolu…)."""
+    # -- mikrofon izni (Android) ------------------------------------------------------------------------------------------
+    @property
+    def asking_permission(self) -> bool:
+        """İzin penceresi açık (sonuç bekleniyor)."""
+        return self._asking_permission
+
+    def _needs_permission(self, then: Callable[[], Any]) -> bool:
+        """İzin varsa ``False``. Yoksa sistem penceresini açar, ``True`` döner; izin gelince ``then()`` çağrılır,
+        gelmezse telefon ayarlarını anlatan hata kartı (``errorRaised``) gösterilir."""
+        if self._mic.status() == mic_permission.GRANTED:
+            return False
+        if self._asking_permission:
+            return True
+
+        def done(granted: bool) -> None:
+            self._asking_permission = False
+            if not granted:
+                err = dev.permission_error()
+                self.last_error = err
+                self.errorRaised.emit(err)
+                return
+            try:
+                then()
+            except Exception:  # noqa: BLE001 — hata kartı errorRaised ile gösterildi
+                pass
+
+        self._asking_permission = True
+        self._mic.request(self, done)
+        return True
+
+    def start_recording(self) -> Optional[Path]:
+        """Kaydı başlatır; ``.wav`` yolunu döner. Hazır değilse ``SmartError`` atar (aygıt yok, disk dolu…).
+
+        Android'de mikrofon izni henüz yoksa izin penceresini açıp ``None`` döner; izin gelince kayıt başlar."""
         if self.state == "recording":
             raise RuntimeError("zaten kayıt yapılıyor")
         if self.state == "testing":
             self.cancel_mic_test()
+        if self._needs_permission(self.start_recording):
+            return None
         try:
             self._apply_engine_config()
             self._check_ready()
@@ -406,9 +446,13 @@ class RecorderService(QObject):
 
     # -- mikrofon testi / auto-gain (yalnız ÖNERİ) --------------------------------------------------------------------------
     def start_mic_test(self, seconds: float = MIC_TEST_SECONDS, *, calibration: bool = False) -> None:
-        """``seconds`` boyunca dinler (diske yazmaz); bitince ``LevelAnalysis`` önerisi ``micTestFinished`` ile gelir."""
+        """``seconds`` boyunca dinler (diske yazmaz); bitince ``LevelAnalysis`` önerisi ``micTestFinished`` ile gelir.
+
+        Android'de mikrofon izni henüz yoksa önce izin istenir; izin gelince test başlar."""
         if self.state != "idle":
             raise RuntimeError("meşgul")
+        if self._needs_permission(lambda: self.start_mic_test(seconds, calibration=calibration)):
+            return
         try:
             self._apply_engine_config()
             self._check_ready()

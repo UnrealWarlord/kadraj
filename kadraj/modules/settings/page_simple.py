@@ -23,7 +23,9 @@ from ...ui.widgets import Lockup, SquishyButton
 from ...ui.widgets.surface import page_surface_qss
 from .guide import GUIDE_HOSTS, GuideDialog
 from .keytest import KeyTestResult
-from .service import WHISPER_MODELS, KeyRow, LocalRuntime, initials, source_label
+from .service import (WHISPER_MODELS, KeyRow, LocalRuntime, initials, js_tool_key, repair_hint_key, source_label,
+                      update_note_key)
+from . import vault_ui
 from .strings import K
 
 _KIND_ACCENT = {"llm": Accent.PEACH, "image": Accent.LAVENDER, "video": Accent.MINT, "tts": Accent.BUTTER,
@@ -213,6 +215,18 @@ class SettingsSimplePage(ThemedMixin, QWidget):
         self.vault_banner.setProperty("role", "hint")
         self.vault_banner.setWordWrap(True)
         lay.addWidget(self.vault_banner)
+        self._vault_state = "ready"
+        self.vault_action = SquishyButton("", variant="secondary")        # "Kilidi aç" / "Parola belirle"
+        self.vault_action.setVisible(False)
+        self.vault_action.clicked.connect(self._on_vault_action)
+        self.vault_reset = SquishyButton("", variant="ghost")             # "Parolamı unuttum" / "Kasayı sıfırla"
+        self.vault_reset.setVisible(False)
+        self.vault_reset.clicked.connect(self._on_vault_reset)
+        action_row = QHBoxLayout()
+        action_row.addWidget(self.vault_action)
+        action_row.addWidget(self.vault_reset)
+        action_row.addStretch(1)
+        lay.addLayout(action_row)
         self.key_box = QVBoxLayout()
         lay.addLayout(self.key_box)
         self.key_result = KeyTestResult(self.service, self.ctx)           # "Bağlantıyı test et" sonucu: sade Türkçe + adımlar
@@ -303,11 +317,11 @@ class SettingsSimplePage(ThemedMixin, QWidget):
         self.cb_auto_update.setChecked(self.service.auto_update())
         self.cb_auto_update.toggled.connect(self.service.set_auto_update)
         lay.addWidget(self.cb_auto_update)
-        note = QLabel(i18n.t(K.UPDATE_STARTUP_NOTE))
+        note = QLabel(i18n.t(update_note_key()))
         note.setProperty("role", "muted")
         note.setWordWrap(True)
         lay.addWidget(note)
-        hint = QLabel(i18n.t(K.REPAIR_HINT))
+        hint = QLabel(i18n.t(repair_hint_key()))
         hint.setProperty("role", "muted")
         hint.setWordWrap(True)
         lay.addWidget(hint)
@@ -348,6 +362,18 @@ class SettingsSimplePage(ThemedMixin, QWidget):
     def _refresh_banner(self) -> None:
         state, message = self.service.vault_state()
         self.vault_banner.setText("" if state == "ready" else message)
+        self._vault_state = state
+        for button, labels in ((self.vault_action, vault_ui.ACTION_LABELS), (self.vault_reset, vault_ui.RESET_LABELS)):
+            label = labels.get(state)
+            button.setVisible(label is not None)
+            if label is not None:
+                button.setText(i18n.t(label))
+
+    def _on_vault_action(self) -> None:
+        vault_ui.prepare_vault(self, self.service, self._vault_state, self._say, self._report)
+
+    def _on_vault_reset(self) -> None:
+        vault_ui.reset_vault(self, self.service, self._say, self._report)
 
     def _refresh_keys(self) -> None:
         _clear(self.key_box)
@@ -492,7 +518,7 @@ class SettingsSimplePage(ThemedMixin, QWidget):
         info = self.service.tool_info()
         self.ytdlp_label.setText(_tool_line(K.TOOL_YTDLP, info.ytdlp, info.sources.get("yt-dlp", "")))
         self.ffmpeg_label.setText(_tool_line(K.TOOL_FFMPEG, info.ffmpeg, info.sources.get("ffmpeg", "")))
-        self.deno_label.setText(_tool_line(K.TOOL_DENO, info.deno, info.sources.get("deno", "")))
+        self.deno_label.setText(_tool_line(js_tool_key(), info.deno, info.sources.get("deno", "")))
 
     # -- eylemler ----------------------------------------------------------
     def _say(self, text: str) -> None:
@@ -517,13 +543,7 @@ class SettingsSimplePage(ThemedMixin, QWidget):
                                         i18n.t(K.VAULT_KEY_PROMPT), QLineEdit.EchoMode.Password)
         if not ok:
             return
-        try:
-            self.service.save_key(provider_id, text)
-            self._say(i18n.t(K.VAULT_SAVED))
-        except ValueError as exc:
-            self._say(str(exc))
-        except Exception as exc:  # noqa: BLE001 — kasa kilitliyse SmartError kartla gösterilir
-            self._report(exc)
+        vault_ui.save_key(self, self.service, provider_id, text, self._say, self._report)   # gerekirse önce parola
 
     def _delete_key(self, provider_id: str, name: str) -> None:
         answer = QMessageBox.question(self, i18n.t(K.BTN_DELETE_KEY), i18n.t(K.VAULT_DELETE_CONFIRM, name=name))

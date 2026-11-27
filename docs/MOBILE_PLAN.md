@@ -17,6 +17,9 @@
 ## 1. Kullanıcının çalışma kuralları (uy)
 
 - Kullanıcı Türkçe konuşur; arayüz metinleri Türkçe + İngilizce (`strings.py`).
+- **Kapsam 2026-11-26'da onaylandı; kararları artık Claude alır** (Erol: "kararları bundan sonra kendin al", "önerilen seçenekler benim için uygun"). Önerilen seçeneği seç, `docs/DECISIONS.md` → "Mobil kararları" tablosuna yaz; yalnız geri alınamayan ya da kullanıcının hesabını gerektiren işlerde dur (M9).
+- **Remote Control yok.** Ağır işler (APK derleme) Claude'un kendi bulut makinesinde Docker içinde yapılır, iş bitince imaj ve birimler silinir; kod değişiklikleri kullanıcının depo klasörüne aktarılır (M8).
+- **Commit'ten önce hata raporu:** 3.0.0 commit'inden önce tam test takımı + `--selftest` çalıştırılır ve bulunan bütün hatalar/bilinen sorunlar kullanıcıya listelenir (M7).
 - **Başlamadan önce rapor ver, onay al.** En fazla 8 adımlık bir yol haritası çıkar; kolay adımları **Haiku**, orta/zor adımları **Sonnet** thread'ine ver (kullanıcı bunu açıkça istiyor). Her adımdan sonra küçük kontrol, en sonda detaylı doğrulama.
 - Thread'lerin sorularında önerilen seçeneği koordinatör seçer, hepsini en sonda kullanıcıya listeler (`docs/DECISIONS.md`'ye yaz).
 - **Commit'ler yalnız yerel kayıt noktasıdır.** Push, etiket, Release, Actions'ı çalıştırma, silme gibi **GitHub işlerini kullanıcı kendisi yapar** (GitHub'ı öğreniyor). Sen adım adım tarif edersin; `gh` ile yalnızca okuma (log, durum) yaparsın. Kullanıcı açıkça "sen hallet" derse o istek için yaparsın.
@@ -76,17 +79,17 @@
 
 | Alan | Masaüstünde | Android'de sorun | Öneri |
 |---|---|---|---|
-| Arayüz | Basit + Legend (çok panel, dock) | Legend telefona sığmaz | Mobilde yalnız **Basit Mod**'un dokunmatik düzeni (tek sütun telefon, iki sütun tablet), Legend kapalı. Büyük dokunma hedefleri, sistem geri tuşu, döndürme. |
+| Arayüz | Basit + Legend (çok panel, dock) | Legend telefona sığmaz | **Telefon:** yalnız **Basit Mod**'un dokunmatik düzeni (tek sütun), Legend kapalı (M1). **Tablet** (en küçük genişlik ≥ 600 dp): masaüstündeki gibi **Basit + Legend** ve tam düzenleyici; aynı APK ekran boyutuna göre seçer (M2). Her ikisinde büyük dokunma hedefleri, sistem geri tuşu, döndürme. |
 | FFmpeg | `~/.kadraj/tools` / paket / PATH, alt süreç | Android 10+ W^X: yazılabilir klasörden ikili çalıştırılamaz | FFmpeg/ffprobe'u `jniLibs/arm64-v8a/libffmpeg.so` olarak göm, `nativeLibraryDir`'den çalıştır (`extractNativeLibs=true`). `components.py`'ye "android" kaynağı ekle. Android için GPL/LGPL statik derleme (lisans: `THIRD_PARTY_NOTICES.md`). |
 | JS çalıştırıcı | Deno | Deno'nun Android sürümü yok | yt-dlp-ejs'in desteklediği **QuickJS / quickjs-ng**'yi Android için derleyip aynı şekilde göm; yt-dlp'ye çalıştırıcıyı açıkça etkinleştir (yalnız deno varsayılan açık). Kaynak: [yt-dlp-ejs](https://pypi.org/project/yt-dlp-ejs/). |
 | Açılışta güncelleme | yt-dlp, FFmpeg, Deno | İndirilen ikili çalıştırılamaz | Android'de updater yalnız **yt-dlp zipapp** (saf Python) için çalışsın; FFmpeg/QuickJS güncellemesi yeni APK ile. Ayarlar'da bunu açıkça yaz. |
 | Ses kaydı | sounddevice + PortAudio, `.wav` | PortAudio yok | `QMediaCaptureSession` + `QAudioInput` + `QMediaRecorder` (ya da `QAudioSource` ile PCM → `.wav` yazma). `RECORD_AUDIO` çalışma zamanı izni. Çıktı yine yalnız `.wav` (marka testi `.mp3` vb. literalleri yasaklar). |
-| Anahtar kasası | Fernet + OS keyring | `keyring` Android'i desteklemez | Android Keystore (pyjnius üzerinden) ya da mevcut PBKDF2 parola yedeği. Anahtar asla düz metin/log yok, ekranda maskeli. |
+| Anahtar kasası | Fernet + OS keyring | `keyring` Android'i desteklemez | İlk sürümde mevcut **PBKDF2 parola yedeği** (M4); Android Keystore (pyjnius üzerinden) sonra. Anahtar asla düz metin/log yok, ekranda maskeli. |
 | Dosyalar | `~/.kadraj`, proje klasörü, "Klasörde göster" | Scoped storage | Uygulama özel klasörü + dışa aktarmada MediaStore / SAF ("Paylaş" ve "Galeriye kaydet"); "Klasörde göster" yerine "Paylaş"/"Aç". |
 | Sistem izleme | psutil, nvidia-ml-py | Kısıtlı | Mobilde sysmon panelini gizle ya da yalnız pil/depolama. |
 | Uzun işler | iş kuyruğu (QThreadPool) | Arka planda süreç öldürülebilir | Uzun indirme/render için ön plan servisi bildirimi (`POST_NOTIFICATIONS`, `FOREGROUND_SERVICE_DATA_SYNC`) ya da "ekran açık kalsın" + kaldığı yerden devam. |
-| Video düzenleme | Tam NLE | Ekran/işlemci | Mobilde sade: kes, birleştir, müzik ekle, platform şablonuyla dışa aktar. |
-| Boyut | — | — | APK tahminen 150–250 MB; yalnız `arm64-v8a` ile başla. |
+| Video düzenleme | Tam NLE | Ekran/işlemci | **Telefonda sade:** kes, birleştir, müzik ekle, platform şablonuyla dışa aktar (M1). **Tablette tam düzenleyici** (M2). |
+| Boyut | — | — | APK tahminen 150–250 MB; yalnız `arm64-v8a` (M3). |
 | Bağımlılıklar | requirements.txt | C uzantılı paketlere tarif gerekir | numpy, Pillow, cryptography için python-for-android tarifleri var; reportlab, soundfile, psutil, keyring için kontrol et; olmayan özellik mobilde kapalı + sade açıklama. |
 
 Ağ, AI sağlayıcıları (httpx), SQLite, i18n, otomatik kayıt, proje modeli büyük ölçüde aynen çalışmalı.
@@ -100,9 +103,9 @@ Ağ, AI sağlayıcıları (httpx), SQLite, i18n, otomatik kayıt, proje modeli b
 | 3 | FFmpeg + QuickJS'i Android için derle/göm (`jniLibs`), yt-dlp'yi QuickJS ile çalıştır | Sonnet | Emülatörde yt-dlp test videosu ≤1080p iniyor ve birleştiriliyor |
 | 4 | Ses kaydı Android yolu (QtMultimedia), izinler | Sonnet | Emülatörde `.wav` kaydı, kayıt yeri görünüyor |
 | 5 | Kasa: Android Keystore ya da parola yedeği; Ayarlar'da anahtar girişi | Sonnet | Anahtar kaydet/oku, maskeli gösterim |
-| 6 | Mobil Basit Mod düzeni (telefon/tablet), Legend kapalı, Paylaş/Galeriye kaydet, ikon ve "from İnsibağ" kuralı | Haiku | Ekran görüntüleri (telefon + tablet), offscreen testler |
+| 6 | Telefon: Basit Mod dokunmatik düzeni (Legend kapalı) · Tablet: masaüstü gibi Basit + Legend ve tam düzenleyici · Paylaş/Galeriye kaydet, ikon ve "from İnsibağ" kuralı | Sonnet (tablet işi eklenince zorlaştı) | Ekran görüntüleri (telefon + tablet), offscreen testler |
 | 7 | CI: `release.yml`'e `android` işi (ubuntu-latest): seed → APK → imzala → `KADRAJ-<sürüm>-android-arm64.apk` + `.sha256` → Release'e ekle; sürüm kapısı aynı | Sonnet | `workflow_dispatch` artifact'ı oluşuyor (kullanıcı çalıştırır) |
-| 8 | README + sürüm notu: Android kurulumu ("bilinmeyen uygulamalara izin ver", gelişmiş akış, geliştirici doğrulaması notu) ve son doğrulama | Haiku + koordinatör | Docker'da tam derleme + emülatör sınaması; geçici her şey silindi |
+| 8 | README + sürüm notu: Android kurulumu ("bilinmeyen uygulamalara izin ver", gelişmiş akış, geliştirici doğrulaması notu) ve son doğrulama; tam test + hata raporu kullanıcıya; sonra `mobile` → `main` (yerel) ve **Sürüm 3.0.0** commit'i (M7) | Haiku + koordinatör | Docker'da tam derleme + emülatör sınaması; geçici her şey silindi |
 
 Doğrulama: KVM varsa Docker'da Android emülatörü (x86_64 imaj + x86_64 APK) ya da kullanıcının cihazına ADB. Gerçek cihaz denemesi kullanıcıda.
 
@@ -112,15 +115,17 @@ Doğrulama: KVM varsa Docker'da Android emülatörü (x86_64 imaj + x86_64 APK) 
 2. **İmza anahtarı (keystore):** bir kez oluşturulur; **kaybolursa kullanıcılar güncelleme alamaz.** Claude komutu verir, kullanıcı çalıştırır ve şifreyi saklar. Örnek:
    `keytool -genkeypair -v -keystore kadraj-release.jks -alias kadraj -keyalg RSA -keysize 4096 -validity 10000`
    Yedeğini güvenli bir yerde tutar; GitHub → Settings → Secrets and variables → Actions'a kendisi ekler (öneri: `KADRAJ_KEYSTORE_B64`, `KADRAJ_KEYSTORE_PASSWORD`, `KADRAJ_KEY_ALIAS`, `KADRAJ_KEY_PASSWORD`). Claude anahtarı/şifreyi görmez, sohbete yazılmaz.
-3. **Test cihazı:** Android 8+ telefon ve/veya tablet; "geliştirici seçenekleri" + USB hata ayıklama (ADB ile kurulum için).
+3. **Test cihazı:** Android 9+ (API 28; Qt 6.12'nin alt sınırı, M10) telefon ve/veya tablet; "geliştirici seçenekleri" + USB hata ayıklama (ADB ile kurulum için).
 4. **2027'den önce Android geliştirici doğrulaması** (Android Developer Console, kimlik).
 5. **iOS istenirse:** Apple Developer Program üyeliği (yıllık ücretli) + dağıtım yolu kararı (öneri: TestFlight) + bir Mac ya da macOS CI'da imzalama için sertifika/profil.
-6. Push, Actions çalıştırma, Release — her zamanki gibi kullanıcı yapar.
+6. Push kullanıcıda. **3.0.0 için Actions kısmını Claude yürütür** (kullanıcı: "ben pushlarım, sen action kısımlarını halledersin", M7).
 
-## 9. Açık kararlar (yeni oturum kullanıcıya sorsun)
+## 9. Açık kararlar — 2026-11-26'da yanıtlandı
 
-- Mobilde video düzenleme ne kadar olsun (sade mi, hiç mi)?
-- Yalnız `arm64-v8a` mı, eski 32-bit cihazlar (`armeabi-v7a`) da mı?
-- Kasa: Android Keystore (daha çok iş) mi, parola yedeği mi?
-- Depo şu an **private**: Release'ler yalnız erişimi olanlara görünür; herkesin indirebilmesi için depo public olmalı (kullanıcının kararı).
-- iOS: şimdi mi, sonra mı, hangi yol?
+Ayrıntı ve gerekçeler: `docs/DECISIONS.md` → "Mobil kararları".
+
+- Video düzenleme: telefonda sade, tablette tam (M1, M2).
+- Mimari: yalnız `arm64-v8a` (M3).
+- Kasa: önce parola yedeği, Keystore sonra (M4).
+- Depo public/private: 7. adımda (CI) karar verilecek (M6).
+- iOS: sonraya bırakıldı (M5).

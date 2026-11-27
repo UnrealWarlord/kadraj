@@ -24,7 +24,9 @@ from ...ui.widgets import SquishyButton
 from ...ui.widgets.surface import page_surface_qss
 from .guide import GUIDE_HOSTS, GuideView
 from .keytest import KeyTestResult
-from .service import WHISPER_MODELS, LocalRuntime, source_label
+from .service import (WHISPER_MODELS, LocalRuntime, js_tool_key, repair_hint_key, source_label,
+                      update_note_key)
+from . import vault_ui
 from .strings import K
 
 _KINDS: Tuple[Tuple[str, str], ...] = (
@@ -152,7 +154,19 @@ class SettingsLegendPage(ThemedMixin, QWidget):
         lay.addWidget(_caps(K.SECTION_API))
         self.api_state = QLabel("")
         self.api_state.setProperty("role", "hint")
-        lay.addWidget(self.api_state)
+        self.api_state.setWordWrap(True)
+        self._vault_state = "ready"
+        self.vault_action = SquishyButton("", variant="secondary")        # "Kilidi aç" / "Parola belirle"
+        self.vault_action.setVisible(False)
+        self.vault_action.clicked.connect(self._on_vault_action)
+        self.vault_reset = SquishyButton("", variant="ghost")             # "Parolamı unuttum" / "Kasayı sıfırla"
+        self.vault_reset.setVisible(False)
+        self.vault_reset.clicked.connect(self._on_vault_reset)
+        state_row = QHBoxLayout()
+        state_row.addWidget(self.api_state, 1)
+        state_row.addWidget(self.vault_action)
+        state_row.addWidget(self.vault_reset)
+        lay.addLayout(state_row)
         self.api_table = _table([i18n.t(K.TH_PROVIDER), i18n.t(K.TH_KEY), i18n.t(K.TH_MODEL),
                                  i18n.t(K.TH_STATE), i18n.t(K.TH_LATENCY), ""])
         lay.addWidget(self.api_table, 1)
@@ -261,11 +275,11 @@ class SettingsLegendPage(ThemedMixin, QWidget):
         refresh = SquishyButton(i18n.t(K.BTN_REFRESH), variant="secondary")
         refresh.clicked.connect(lambda: self.service.refresh_tools(background=True))
         lay.addWidget(refresh, 0)
-        note = QLabel(i18n.t(K.UPDATE_STARTUP_NOTE))
+        note = QLabel(i18n.t(update_note_key()))
         note.setProperty("role", "muted")
         note.setWordWrap(True)
         lay.addWidget(note)
-        hint = QLabel(i18n.t(K.REPAIR_HINT))
+        hint = QLabel(i18n.t(repair_hint_key()))
         hint.setProperty("role", "muted")
         hint.setWordWrap(True)
         lay.addWidget(hint)
@@ -347,6 +361,12 @@ class SettingsLegendPage(ThemedMixin, QWidget):
     def _refresh_api(self) -> None:
         state, message = self.service.vault_state()
         self.api_state.setText("" if state == "ready" else message)
+        self._vault_state = state
+        for button, labels in ((self.vault_action, vault_ui.ACTION_LABELS), (self.vault_reset, vault_ui.RESET_LABELS)):
+            label = labels.get(state)
+            button.setVisible(label is not None)
+            if label is not None:
+                button.setText(i18n.t(label))
         tk = current_tokens()
         rows = self.service.key_rows()
         self.api_table.setRowCount(len(rows))
@@ -440,7 +460,7 @@ class SettingsLegendPage(ThemedMixin, QWidget):
         rows = (
             (i18n.t(K.TOOL_YTDLP), info.ytdlp, source_label(src.get("yt-dlp", "")), "update"),
             (i18n.t(K.TOOL_FFMPEG), info.ffmpeg, source_label(src.get("ffmpeg", "")), None),
-            (i18n.t(K.TOOL_DENO), info.deno, source_label(src.get("deno", "")), None),
+            (i18n.t(js_tool_key()), info.deno, source_label(src.get("deno", "")), None),
         )
         self.tools_table.setRowCount(len(rows))
         for r, (name, version, state, action) in enumerate(rows):
@@ -487,13 +507,13 @@ class SettingsLegendPage(ThemedMixin, QWidget):
                                         i18n.t(K.VAULT_KEY_PROMPT), echo=_password_mode())
         if not ok:
             return
-        try:
-            self.service.save_key(provider_id, text)
-            self._say(i18n.t(K.VAULT_SAVED))
-        except ValueError as exc:
-            self._say(str(exc))
-        except Exception as exc:  # noqa: BLE001 — kasa kilitliyse SmartError
-            self._report(exc)
+        vault_ui.save_key(self, self.service, provider_id, text, self._say, self._report)   # gerekirse önce parola
+
+    def _on_vault_action(self) -> None:
+        vault_ui.prepare_vault(self, self.service, self._vault_state, self._say, self._report)
+
+    def _on_vault_reset(self) -> None:
+        vault_ui.reset_vault(self, self.service, self._say, self._report)
 
     def _start_local(self, provider_id: str) -> None:
         code = self.service.start_local(provider_id)

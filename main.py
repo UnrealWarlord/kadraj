@@ -132,6 +132,20 @@ def _selftest_security(ctx, check, tmpdir: str, attempts: list) -> None:
     raw = ctx.vault.path.read_bytes()
     check("kasa: şifreli yazıldı, düz anahtar dosyada yok", secret.encode() not in raw and ctx.vault.has_secret("anthropic"),
           f"maskeli: {ctx.vault.masked('anthropic')}")
+    from pathlib import Path
+    from kadraj.storage import fernet_lite
+    from kadraj.storage.vault import Vault
+    phone = Vault(Path(tmpdir) / "telefon-kasa.bin", kdf_iterations=1000)        # anahtar zinciri olmayan cihaz (M19)
+    phone.initialize("selftest-parola-42")
+    phone.set_secret("pexels", secret)
+    reopened = Vault(phone.path, kdf_iterations=1000)
+    locked = reopened.status().state == "locked"
+    reopened.unlock("selftest-parola-42")
+    ref = Vault._crypto()[0]                                                    # masaüstünde cryptography'nin Fernet'i
+    key = ref.generate_key()
+    cross = fernet_lite.Fernet(key).decrypt(ref(key).encrypt(b"kadraj")) == b"kadraj"
+    check("kasa (telefon): parola kipi, kilitle/aç, saf Python Fernet uyumlu",
+          locked and reopened.get_secret("pexels") == secret and cross, f"Fernet: {ref.__module__}")
     mark = len(attempts)
     res = ctx.providers.test_connection("anthropic", ctx.vault, timeout=1.0)    # bilerek ağa çıkar; engellenir
     probed = len(attempts) - mark
@@ -401,9 +415,24 @@ def main(argv: Optional[List[str]] = None) -> int:
         return selftest_download(argv)
     if "--selftest" in argv:
         return selftest(argv)
+    from kadraj import device
+    if device.is_android():
+        return _run_android(argv)
     from kadraj.ui.shell.app import run
     return run(["kadraj"], splash=not ("--launcher" in argv or "--no-splash" in argv),
                mode=_arg_value(argv, "--mode"))
+
+
+def _run_android(argv: List[str]) -> int:
+    """Android: açılışı durduran hata kara ekran bırakmasın; ekranda gösterilir ve Belgeler/KADRAJ-hata.txt'ye yazılır."""
+    try:
+        from kadraj.ui.shell.app import run
+        return run(["kadraj"], splash=True, mode=_arg_value(argv, "--mode"))
+    except Exception:  # noqa: BLE001
+        import traceback
+        from kadraj import crashlog
+        crashlog.show_fatal(traceback.format_exc())
+        return 1
 
 
 if __name__ == "__main__":
