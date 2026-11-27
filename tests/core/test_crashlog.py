@@ -104,3 +104,9 @@ def test_desktop_main_does_not_swallow_startup_errors(monkeypatch):
     monkeypatch.setattr("kadraj.ui.shell.app.run", boom)
     with pytest.raises(RuntimeError):
         main.main([])
+
+
+def test_note_is_one_branded_line_on_stdout(capsys):
+    from kadraj.branding import APP_NAME
+    crashlog.note("ana pencere açıldı (simple)")
+    assert capsys.readouterr().out == f"{APP_NAME}: ana pencere açıldı (simple)\n"

@@ -1,4 +1,4 @@
-# KADRAJ sürüm paketleri: Linux (.tar.gz) + Windows (setup.exe), her biri .sha256 ile.
+# KADRAJ sürüm paketleri: Linux (.tar.gz) + Windows (setup.exe) + Android (.apk), her biri .sha256 ile.
 #
 # İki şekilde çalışır:
 #   1) Elle deneme  → GitHub'da  Actions ▸ "Sürüm paketleri" ▸ Run workflow.
@@ -7,14 +7,19 @@
 #                     Not: iş akışı, etiketin gösterdiği commit'teki .github/workflows/release.yml ile çalışır;
 #                     bu dosya depoda olduktan SONRA etiket/release oluşturun.
 #                     Etiket tam olarak "v" + kadraj/version.py sürümü olmalı (örn. sürüm 1.0.3 → v1.0.3);
-#                     değilse linux ve windows işleri derlemeden önce hata verip durur. Elle denemede kontrol yok.
+#                     değilse linux, windows ve android işleri derlemeden önce hata verip durur. Elle denemede
+#                     kontrol yok.
 #
 # Dosya adları (README'de yazılı, değiştirmeyin):
-#   KADRAJ-<sürüm>-linux-x86_64.tar.gz       (+ .sha256)
-#   KADRAJ-<sürüm>-windows-x64-setup.exe     (+ .sha256)
+#   KADRAJ-<sürüm>-linux-x86_64.tar.gz            (+ .sha256)
+#   KADRAJ-<sürüm>-windows-x64-setup.exe          (+ .sha256)
+#   KADRAJ-<sürüm>-android-arm64.apk              (+ .sha256)  telefon + tablet, Android 9+
+#   KADRAJ-<sürüm>-android-native-sources.tar     (+ .sha256)  APK'daki FFmpeg/x264/… kaynakları (GPL karşılığı)
 # <sürüm>, kadraj/version.py içinden okunur.
-# Her iki paket de FFmpeg, ffprobe, Deno ve yt-dlp'yi içerir (kullanıcı hiçbir şey kurmaz); bunlar derleme sırasında
-# resmî kaynaklardan SHA-256 doğrulamasıyla indirilir (python -m kadraj.core.updater --seed).
+# Linux ve Windows paketleri FFmpeg, ffprobe, Deno ve yt-dlp'yi içerir (kullanıcı hiçbir şey kurmaz); bunlar derleme
+# sırasında resmî kaynaklardan SHA-256 doğrulamasıyla indirilir (python -m kadraj.core.updater --seed).
+# Android APK'sı FFmpeg, ffprobe ve QuickJS'i sabit commit'li kaynaklardan derleyip içine koyar
+# (packaging/android/build_native.sh); yt-dlp Python paketi olarak girer.
 name: Sürüm paketleri
 
 on:
@@ -259,6 +264,179 @@ jobs:
           if (-not $files) { throw "Yüklenecek dosya yok" }
           gh release upload $env:TAG @files --clobber --repo $env:GITHUB_REPOSITORY
           if ($LASTEXITCODE -ne 0) { throw "gh release upload başarısız" }
+
+  # ---------------------------------------------------------------------------------------------
+  # Android APK'sı (telefon + tablet, yalnız arm64-v8a, Android 9+) ve yerel araçların kaynak arşivi.
+  # Derleme Docker'da: packaging/build_android.sh (NDK r28c → FFmpeg/ffprobe/QuickJS → APK). Yerel araçlar önbelleğe
+  # alınır: ilk çalıştırma uzun sürer (1–2 saat), betikler değişmedikçe sonrakiler kısalır.
+  # İmza anahtarı depo gizlilerinden gelir (Settings ▸ Secrets and variables ▸ Actions ▸ New repository secret):
+  #   KADRAJ_KEYSTORE_B64       anahtar deposu dosyasının base64 hâli (base64 -w0 kadraj-release.jks)
+  #   KADRAJ_KEYSTORE_PASSWORD  deponun parolası
+  #   KADRAJ_KEY_ALIAS          anahtarın adı (keytool -alias)
+  #   KADRAJ_KEY_PASSWORD       anahtarın parolası (PKCS12'de deponunkiyle aynı; boş bırakılabilir)
+  # Gizliler yoksa: elle denemede imzasız APK üretilir (kurulamaz; yalnız derleme denetimi), release'te iş düşer.
+  # Anahtar kaybolursa kullanıcılar güncelleme alamaz: yedeğini saklayın (docs/steps/MOBILE_7.md).
+  android:
+    name: Android paketi (APK)
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions:
+      contents: write          # release'e dosya eklemek için
+    steps:
+      - name: Kodu indir
+        uses: actions/checkout@v7
+
+      # Kapı: release etiketi tam olarak "v" + kadraj/version.py sürümü olmalı; değilse derlemeden ÖNCE düşer.
+      - name: Etiket ile sürüm tutarlı mı? (kapı)
+        if: github.event_name == 'release'
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          VERSION="$(sed -n 's/^__version__ *= *"\([^"]*\)".*/\1/p' kadraj/version.py | head -n1)"
+          if [ -z "$VERSION" ]; then
+            echo "::error title=Sürüm okunamadı::kadraj/version.py içinde __version__ bulunamadı."
+            exit 1
+          fi
+          if [ "$TAG" != "v$VERSION" ]; then
+            echo "::error title=Sürüm uyuşmuyor::Etiket '$TAG' ama kadraj/version.py sürümü '$VERSION' (beklenen etiket: 'v$VERSION'). Ne yapmalı: kadraj/version.py içindeki sürümü yükseltin, push edin, sonra release'i 'v<sürüm>' etiketiyle oluşturun (yanlış etiketli release'i ve etiketini silin)."
+            exit 1
+          fi
+          echo "Etiket $TAG = v$VERSION ✓"
+
+      # Kapı: release'e imzasız APK gitmez. Burada gizlilerin yalnız var olup olmadığına bakılır; değerleri okunmaz.
+      - name: İmza anahtarı var mı? (kapı)
+        id: signing
+        env:
+          HAS_KEYSTORE: ${{ secrets.KADRAJ_KEYSTORE_B64 != '' }}
+          HAS_STORE_PASSWORD: ${{ secrets.KADRAJ_KEYSTORE_PASSWORD != '' }}
+          HAS_ALIAS: ${{ secrets.KADRAJ_KEY_ALIAS != '' }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          missing=""
+          [ "$HAS_KEYSTORE" = true ] || missing="$missing KADRAJ_KEYSTORE_B64"
+          [ "$HAS_STORE_PASSWORD" = true ] || missing="$missing KADRAJ_KEYSTORE_PASSWORD"
+          [ "$HAS_ALIAS" = true ] || missing="$missing KADRAJ_KEY_ALIAS"
+          if [ -z "$missing" ]; then
+            echo "sign=true" >> "$GITHUB_OUTPUT"
+            echo "İmza anahtarı hazır ✓"
+            exit 0
+          fi
+          echo "sign=false" >> "$GITHUB_OUTPUT"
+          msg="Eksik depo gizlileri:$missing (Settings ▸ Secrets and variables ▸ Actions). Ne yapmalı: docs/steps/MOBILE_7.md → İmza anahtarı."
+          if [ "$EVENT" = release ]; then
+            echo "::error title=İmza anahtarı yok::$msg"
+            exit 1
+          fi
+          echo "::warning title=İmza anahtarı yok::$msg Bu çalıştırma imzasız APK üretir (kurulamaz)."
+
+      # Derleme ~15 GB yer ister (imaj, NDK, SDK, Gradle, python-for-android): kullanılmayan araçlar silinir.
+      # Android SDK'sı da gider; imza, derlemede indirilen SDK ile konteynerde atılır.
+      - name: Disk yeri aç
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      # FFmpeg/ffprobe/QuickJS'in derlemesi uzun sürer: betikler ve imaj değişmedikçe önbellekten gelir.
+      # Etiket (release) çalıştırması varsayılan dalın önbelleğini kullanabilir: önce main'de elle bir deneme
+      # çalıştırmak release'i kısaltır.
+      - name: Yerel araç önbelleği
+        uses: actions/cache@v6
+        with:
+          path: build/android/native
+          key: android-native-${{ hashFiles('packaging/android/build_native.sh', 'packaging/android/Dockerfile', 'packaging/build_android.sh') }}
+
+      - name: APK'yı derle (Docker)
+        run: bash packaging/build_android.sh release
+
+      # Anahtar dosyası yalnız bu adımda, yalnız çalıştırıcının okuyabileceği kipte durur ve adım bitince silinir.
+      # İmza ağsız bir konteynerde atılır; parolalar değişken adıyla geçer, günlükte görünmez.
+      - name: APK'yı imzala
+        if: steps.signing.outputs.sign == 'true'
+        env:
+          KADRAJ_KEYSTORE_B64: ${{ secrets.KADRAJ_KEYSTORE_B64 }}
+          KADRAJ_KEYSTORE_PASSWORD: ${{ secrets.KADRAJ_KEYSTORE_PASSWORD }}
+          KADRAJ_KEY_ALIAS: ${{ secrets.KADRAJ_KEY_ALIAS }}
+          KADRAJ_KEY_PASSWORD: ${{ secrets.KADRAJ_KEY_PASSWORD }}
+        run: |
+          export KADRAJ_KEYSTORE="$RUNNER_TEMP/kadraj-release.keystore"
+          trap 'rm -f "$KADRAJ_KEYSTORE"' EXIT
+          umask 077
+          if ! printf '%s' "$KADRAJ_KEYSTORE_B64" | tr -d ' \r\n\t' | base64 -d > "$KADRAJ_KEYSTORE" 2>/dev/null \
+             || [ ! -s "$KADRAJ_KEYSTORE" ]; then
+            echo "::error title=Anahtar okunamadı::KADRAJ_KEYSTORE_B64 geçerli bir base64 metni değil (base64 -w0 kadraj-release.jks çıktısının tamamı olmalı)."
+            exit 1
+          fi
+          umask 022
+          unset KADRAJ_KEYSTORE_B64
+          bash packaging/build_android.sh sign
+
+      - name: Dosyalar
+        run: |
+          ls -l dist/
+          cat dist/*.sha256
+
+      - name: Paketleri sakla (Artifacts)
+        uses: actions/upload-artifact@v7
+        with:
+          name: KADRAJ-android-arm64
+          path: |
+            dist/KADRAJ-*-android-arm64*.apk
+            dist/KADRAJ-*-android-arm64*.apk.sha256
+            dist/KADRAJ-*-android-native-sources.tar
+            dist/KADRAJ-*-android-native-sources.tar.sha256
+          if-no-files-found: error
+          compression-level: 0          # APK ve kaynak arşivi zaten sıkıştırılmış
+          retention-days: 30
+
+      - name: Release'e ekle
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          gh release upload "$TAG" \
+            dist/KADRAJ-*-android-arm64.apk \
+            dist/KADRAJ-*-android-arm64.apk.sha256 \
+            dist/KADRAJ-*-android-native-sources.tar \
+            dist/KADRAJ-*-android-native-sources.tar.sha256 \
+            --clobber --repo "$GITHUB_REPOSITORY"
+
+  # ---------------------------------------------------------------------------------------------
+  # Bilgi amaçlı: APK'yı Android emülatöründe (x86_64 imaj, ARM64 çevirisiyle) telefon ve tablet boyutunda açar
+  # (packaging/android/smoke_emulator.sh). Ekran görüntüleri ve logcat "android-acilis-denemesi" artifact'ındadır.
+  # Sürüm paketini engellemez (job düzeyinde continue-on-error açık); KVM yoksa kendini atlar.
+  android-smoke:
+    name: Android açılış denemesi (emülatör, bilgi amaçlı)
+    needs: android
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - name: Kodu indir
+        uses: actions/checkout@v7
+
+      - name: APK'yı al
+        uses: actions/download-artifact@v8
+        with:
+          name: KADRAJ-android-arm64
+          path: apk
+
+      - name: Emülatörde aç (telefon + tablet)
+        run: |
+          set -- apk/KADRAJ-*-android-arm64*.apk
+          bash packaging/android/smoke_emulator.sh "$1" smoke
+
+      - name: Sonuçları sakla
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-acilis-denemesi
+          path: smoke/
+          if-no-files-found: ignore
+          retention-days: 14
 
   # ---------------------------------------------------------------------------------------------
   # Bilgi amaçlı: Windows'a özgü hataları görmek için tüm test takımı. Paketlemeyi engellemez

@@ -223,3 +223,58 @@ def test_apk_build_uses_the_adaptive_icon_and_a_signatureless_png():
     assert '"android.add_resources": f"{here}/res"' in build
     m = re.search(r'"icon\.filename": "[^"]*kadraj-(\d+)\.png"', build)
     assert m and int(m.group(1)) < _icons().SIGNATURE_MIN_PX              # imza yalnız ≥ 256 px
+
+
+
+# ------------------------------------------------------------------------------------------------ açılış günlüğü
+def _launch(ctx, qtbot, monkeypatch, capsys, *, consent_given: bool, wizard_done: bool) -> list:
+    """Sahte onay ve sihirbazla açılışı oynatır; stdout'a (Android'de logcat) yazılan aşamaları döner."""
+    from PySide6.QtWidgets import QApplication
+
+    from kadraj.branding import APP_NAME
+    from kadraj.core.contracts import WizardAnswers
+    from kadraj.ui.shell.app import Launcher
+    from kadraj.ui.shell.wizard import WizardDialog
+
+    class FakeWizard:
+        DialogCode = WizardDialog.DialogCode
+
+        def __init__(self):
+            from PySide6.QtCore import QObject, Signal
+
+            class _S(QObject):
+                finishedWithAnswers = Signal(object)
+            self._s = _S()
+            self.finishedWithAnswers = self._s.finishedWithAnswers
+
+        def exec(self):                               # kullanıcı sihirbazı geri tuşuyla kapattı
+            return WizardDialog.DialogCode.Rejected
+
+        def answers(self):
+            return WizardAnswers()
+
+    monkeypatch.setattr("kadraj.ui.shell.app.WizardDialog", FakeWizard)
+    monkeypatch.setattr("kadraj.consent.is_accepted", lambda path=None: consent_given)
+    ctx.settings.set("wizard.done", wizard_done)
+    capsys.readouterr()
+    lc = Launcher(QApplication.instance(), ctx, ctx.theme, splash=False, ask_consent=lambda: True)
+    lc.start()
+    qtbot.addWidget(lc.window)
+    prefix = f"{APP_NAME}: "
+    return [line[len(prefix):] for line in capsys.readouterr().out.splitlines() if line.startswith(prefix)]
+
+
+def test_android_launch_writes_its_stages_to_logcat(ctx, qtbot, on_android, monkeypatch, capsys):
+    """CI'daki emülatör denemesi (packaging/android/smoke_emulator.sh) açılışı bu satırlardan izler."""
+    stages = _launch(ctx, qtbot, monkeypatch, capsys, consent_given=False, wizard_done=False)
+    assert stages[0].startswith("açılış: tablet, en küçük genişlik ")
+    assert stages[1:] == ["onay soruluyor", "sihirbaz açıldı", "ana pencere açıldı (simple)"]
+    assert ctx.settings.get("wizard.done") is True                     # geri tuşuyla atlanan sihirbaz bir daha açılmaz
+    again = _launch(ctx, qtbot, monkeypatch, capsys, consent_given=True, wizard_done=True)
+    assert again[1:] == ["ana pencere açıldı (simple)"]
+
+
+def test_desktop_launch_writes_nothing(ctx, qtbot, monkeypatch, capsys):
+    monkeypatch.setenv("KADRAJ_PLATFORM", "linux")
+    monkeypatch.delenv("KADRAJ_FORM_FACTOR", raising=False)
+    assert _launch(ctx, qtbot, monkeypatch, capsys, consent_given=False, wizard_done=False) == []

@@ -149,4 +149,5 @@ masaüstünde `KADRAJ_FORM_FACTOR=phone|tablet` ve `KADRAJ_PLATFORM=android` ile
 - APK derlemesi `packaging/android/build_apk.sh` (debug ya da release); Java kaynakları, uyarlanır simge ve p4a kancası
   betiğin içinden eklenir, ayrıca bir şey gerekmez. Betik sonunda sağlayıcı, köprü sınıfları ve simge denetlenir.
 - Yerel araçlar (`build_native.sh`, ~13 dk) CI'da önbelleğe alınabilir; kaynak arşivi Release'e eklenecek (M14).
-- İmza: `KADRAJ_KEYSTORE_B64`, `KADRAJ_KEYSTORE_PASSWORD`, `KADRAJ_KEY_ALIAS`, `KADRAJ_KEY_PASSWORD` (Erol ekledi).
+- İmza: `KADRAJ_KEYSTORE_B64`, `KADRAJ_KEYSTORE_PASSWORD`, `KADRAJ_KEY_ALIAS`, `KADRAJ_KEY_PASSWORD` (depo
+  gizlileri; anahtarı Erol üretir ve GitHub'a kendisi ekler, Claude görmez).
