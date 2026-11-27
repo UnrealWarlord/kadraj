@@ -5,6 +5,8 @@
                            ``legend.<key>`` çiftini arar (Basit: "Kayıt noktası", Legend: "Snapshot").
                            Çift yoksa ``t(key)``'e düşer.
 * ``register_strings``   : modüllerin kendi dizelerini eklemesi (``ModuleSpec.strings``).
+* Android'de ``ANDROID_STRINGS`` (``core/strings.py``) önce aranır: "bilgisayar" yerine "cihaz" ve Android'de
+  yapılabilen adımlar (M23). Yalnız orada bulunan anahtarlar için platform sorulur.
 
 Çekirdek tablolar ``core/strings.py`` içindedir. Modül anahtarları ``"<modül>."`` ile başlar;
 çekirdek anahtarın üzerine yazmak engellenir.
@@ -13,13 +15,16 @@ from __future__ import annotations
 
 from typing import Dict, Mapping, Optional
 
-from .strings import CORE_STRINGS
+from .. import device
+from .strings import ANDROID_STRINGS, CORE_STRINGS
 
 LANGUAGES: Dict[str, str] = {"tr": "Türkçe", "en": "English"}
 DEFAULT_LANGUAGE = "tr"
 
 _tables: Dict[str, Dict[str, str]] = {lang: dict(tbl) for lang, tbl in CORE_STRINGS.items()}
 _core_keys = {lang: frozenset(tbl) for lang, tbl in _tables.items()}
+_android_tables: Dict[str, Dict[str, str]] = {lang: dict(tbl) for lang, tbl in ANDROID_STRINGS.items()}
+_android_keys = frozenset(key for tbl in _android_tables.values() for key in tbl)
 _language: Optional[str] = None
 _ui_mode: str = "simple"
 
@@ -71,6 +76,10 @@ def register_strings(tables: Mapping[str, Mapping[str, str]]) -> None:
 
 def _lookup(key: str) -> Optional[str]:
     lang = get_language()
+    if key in _android_keys and device.is_android():
+        value = _android_tables.get(lang, {}).get(key)
+        if value is not None:
+            return value
     value = _tables.get(lang, {}).get(key)
     if value is None and lang != "en":
         value = _tables.get("en", {}).get(key)

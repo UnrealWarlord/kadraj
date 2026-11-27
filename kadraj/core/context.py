@@ -12,6 +12,7 @@ from typing import Any, Dict, Optional
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QUndoStack
 
+from .. import device
 from ..ai_engine.providers.base import default_registry
 from ..storage.autosave import AutosaveService
 from ..storage.project import ProjectSession
@@ -26,6 +27,11 @@ from .registry import ModuleRegistry
 from .settings import SettingsStore
 from .stubs import make_recent
 from .sysmon import SystemMonitor
+
+
+def _allowed_mode(mode: UiMode) -> UiMode:
+    """Telefonda yalnız Basit Mod (M1); tablet ve masaüstünde istenen mod."""
+    return UiMode.SIMPLE if mode is UiMode.LEGEND and not device.legend_allowed() else mode
 
 
 class AppContext(QObject):
@@ -64,7 +70,7 @@ class AppContext(QObject):
         self.autosave = AutosaveService(self)
 
         self._services: Dict[str, Optional[Service]] = {}
-        self._mode = UiMode.coerce(self.settings.get("ui_mode"))
+        self._mode = _allowed_mode(UiMode.coerce(self.settings.get("ui_mode")))
         i18n.set_ui_mode(self._mode.value)
 
         self.project.opened.connect(lambda p: self.bus.emit(Topics.PROJECT_OPENED, p))
@@ -78,8 +84,9 @@ class AppContext(QObject):
         return self._mode
 
     def set_ui_mode(self, mode: "UiMode | str") -> None:
-        """Yalnızca sayfaları/temayı değiştirir; proje, seçim, geri alma geçmişi aynen korunur."""
-        new = UiMode.coerce(mode)
+        """Yalnızca sayfaları/temayı değiştirir; proje, seçim, geri alma geçmişi aynen korunur.
+        Telefonda Legend Mod yoktur (M1): istek Basit Mod'da kalır."""
+        new = _allowed_mode(UiMode.coerce(mode))
         if new is self._mode:
             return
         self._mode = new

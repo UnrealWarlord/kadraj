@@ -1,4 +1,4 @@
-# KADRAJ Mobil — Devir Belgesi (Android önce, iOS sonra)
+# KADRAJ Mobil — Devir Belgesi (Android; iOS kapsam dışı)
 
 > Bu belge, KADRAJ'ı Android (ve ileride iOS) telefon/tablete taşıyacak **yeni bir Claude oturumu** için yazıldı.
 > Başka bağlam gerekmeden buradan başlanabilir. Tarih: 2026-11-26 (KADRAJ v2.0.0 yayınlandıktan sonra).
@@ -47,7 +47,7 @@
 ## 3. Hedef
 
 - **Android (telefon + tablet):** APK olarak GitHub Releases'ten indirilip kurulsun; **Play Store zorunlu olmasın.**
-- **iOS:** Kullanıcı App Store'suz istiyor; Türkiye'de bu genel dağıtım için mümkün değil (aşağıya bak). iOS ayrı bir karar olarak bekliyor.
+- **iOS:** Kullanıcı App Store'suz istiyor; Türkiye'de bu genel dağıtım için mümkün değil (aşağıya bak). **Kapsam dışı** (Erol, 2026-11-26: "ios u boşver"; M5).
 
 ## 4. Dağıtım gerçekleri (2026-11 itibarıyla — yeniden doğrula)
 
@@ -128,4 +128,4 @@ Ayrıntı ve gerekçeler: `docs/DECISIONS.md` → "Mobil kararları".
 - Mimari: yalnız `arm64-v8a` (M3).
 - Kasa: önce parola yedeği, Keystore sonra (M4).
 - Depo public/private: 7. adımda (CI) karar verilecek (M6).
-- iOS: sonraya bırakıldı (M5).
+- iOS: kapsam dışı (Erol, 2026-11-26: "ios u boşver"; M5).

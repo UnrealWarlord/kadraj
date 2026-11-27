@@ -59,8 +59,9 @@ Android paketi masaüstündeki bileşenlerin yerine şunları içerir. Lisans me
   (MIT benzeri "Old MIT"), zlib (zlib lisansı, Android NDK'den).
 - Sürümler: FFmpeg n9.1, x264 stable, dav1d 1.5.5, FreeType 2.15.0, FriBidi 1.0.18, HarfBuzz 15.2.0, libass 0.17.5;
   her birinin GitHub deposu ve commit'i `packaging/android/build_native.sh` ile APK'daki `VERSIONS.txt`'de yazılıdır.
-- **Kaynak kod**: derlemede kullanılan kaynakların tam arşivi ve derleme betiği (`android-native-sources.tar`) APK ile
-  aynı GitHub Release'inde yayımlanır. Aynı derleme `packaging/android/build_native.sh` ile yeniden üretilebilir.
+- **Kaynak kod**: derlemede kullanılan kaynakların tam arşivi ve derleme betiği
+  (`KADRAJ-<sürüm>-android-native-sources.tar`) APK ile aynı GitHub Release'inde yayımlanır. Aynı derleme
+  `packaging/android/build_native.sh` ile (ya da baştan sona `packaging/build_android.sh` ile) yeniden üretilebilir.
 
 ### QuickJS-ng
 

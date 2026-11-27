@@ -25,6 +25,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Signal
 
+from ... import bridge
 from ...ai_engine.providers.whisper_local import TranscribeCancelled, WhisperLocalProvider
 from ...core import i18n
 from ...core.contracts import (AUDIO_OUTPUT_EXT, Job, JobStatus, Severity, SmartAction, SmartError, Topics, UiMode)
@@ -346,11 +347,13 @@ class RecorderService(QObject):
         if state != self.state:
             self.state = state
             self.stateChanged.emit(state)
-        if state in ("recording", "testing") or self.prompter.running:
+        active = state in ("recording", "testing") or self.prompter.running
+        if active:
             self._last_tick = self._clock()
             self._timer.start()
         else:
             self._timer.stop()
+        bridge.screen.set("recorder", active)        # Android: kayıt sürerken ekran kararmasın (M20)
 
     # -- mikrofon izni (Android) ------------------------------------------------------------------------------------------
     @property
@@ -521,6 +524,7 @@ class RecorderService(QObject):
             self.finish_mic_test()
         if self.state == "idle" and not self.prompter.running:
             self._timer.stop()
+            bridge.screen.set("recorder", False)              # metin okuyucu kendiliğinden bitti
         self.ticked.emit()
 
     def snapshot(self) -> RecorderSnapshot:

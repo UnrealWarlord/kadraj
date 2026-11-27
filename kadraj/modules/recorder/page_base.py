@@ -7,12 +7,18 @@ from typing import Any, List, Optional
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFrame, QLabel, QVBoxLayout, QWidget
 
+from ... import device
 from ...core import i18n
 from ...core.contracts import Job, JobStatus, SmartAction, SmartError, Topics
 from ...ui.widgets.smart_error_card import SmartErrorCard
 from .location import RecordingLocationBar, RecordingResultCard
 from .service import JOB_MASTER, JOB_TRANSCRIBE, RecorderService
 from .takes import Take
+
+
+def transcribe_available() -> bool:
+    """"Konuşmayı yazıya çevir" (yerel faster-whisper) bu cihazda var mı? Android paketinde yok: düğmeler gizlenir."""
+    return not device.is_android()
 
 
 class RecorderPageBase(QWidget):

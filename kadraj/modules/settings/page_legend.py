@@ -2,6 +2,7 @@
 fallback sırası, yollar, güncellemeler, profiller).
 
 Sayfa yalnızca görünümdür. Tam anahtar hiçbir tabloda görünmez; yalnızca maskeli biçim (``masked``).
+Android tablette yerel çalışma zamanı bölümü menüde gizlidir (Ollama, ComfyUI, yerel Whisper cihazda çalışmaz).
 """
 from __future__ import annotations
 
@@ -15,8 +16,10 @@ from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QCheckBox, QComb
                                QListWidgetItem, QMessageBox, QProgressBar, QRadioButton,
                                QStackedWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
+from ... import device
 from ...core import i18n
 from ...core.contracts import SmartError
+from ...ui import adaptive
 from ...storage.disk import human_size
 from ...storage.profiles import ProfileError
 from ...ui.theme.manager import ThemedMixin, current_tokens
@@ -113,6 +116,7 @@ class SettingsLegendPage(ThemedMixin, QWidget):
         for key in keys:
             self.nav.addItem(i18n.t(key).upper())
             self.stack.addWidget(QWidget())         # bölüm ilk seçildiğinde kurulur (açılış maliyeti düşük)
+        self.nav.setRowHidden(keys.index(K.SECTION_LOCAL), device.is_android())
         self.nav.currentRowChanged.connect(self._show_section)
         self.nav.setCurrentRow(0)
         root.addWidget(self.nav)
@@ -249,6 +253,13 @@ class SettingsLegendPage(ThemedMixin, QWidget):
         row.addWidget(pick_comfy)
         row.addStretch(1)
         lay.addLayout(row)
+        if device.is_android():                    # klasörler uygulamanın alanında sabit (M12, M20)
+            pick_project.hide()
+            pick_comfy.hide()
+            note = QLabel(i18n.t("files.android_folder"))
+            note.setProperty("role", "hint")
+            note.setWordWrap(True)
+            lay.addWidget(note)
         self.disk_bar = QProgressBar()
         self.disk_bar.setRange(0, 100)
         self.disk_bar.setTextVisible(False)
@@ -342,6 +353,7 @@ class SettingsLegendPage(ThemedMixin, QWidget):
             placeholder.deleteLater()
             self._built.add(index)
             self._refresh(index)
+            adaptive.touch_scroll_all(real)                   # tablet: tablolar parmakla kayar
         self.stack.setCurrentIndex(index)
 
     def _refresh_view(self) -> None:

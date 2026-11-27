@@ -1,4 +1,7 @@
-"""Dizi/Film bileşenleri: ``StageBar`` (aşama çubuğu), ``KanbanBoard`` (sahne panosu: sürükle-bırak + kamera açısı + tek sahne yeniden üret)."""
+"""Dizi/Film bileşenleri: ``StageBar`` (aşama çubuğu), ``KanbanBoard`` (sahne panosu: sürükle-bırak + kamera açısı + tek sahne yeniden üret).
+
+Telefonda aşama çipleri alt satıra geçer, pano sütunları alt alta dizilir; telefon ve tablette sürüklemeden kart taşımak için
+"Taşı" listesi vardır (dokunmatikte sürükle-bırak zahmetli)."""
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
@@ -10,6 +13,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QFrame, QHBoxLayout
 
 from ...ai_engine.pipeline.machine import CAMERA_ANGLES, STAGE_ORDER, STORY_STATUS, Scene, Stage
 from ...core import i18n
+from ...ui import adaptive
 
 MIME = "application/x-kadraj-scene"
 
@@ -21,9 +25,8 @@ class StageBar(QWidget):
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        lay = QHBoxLayout(self)
+        lay = adaptive.hbox(self, spacing=6)
         lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(6)
         self.buttons: Dict[Stage, QPushButton] = {}
         for st in STAGE_ORDER:
             if st is Stage.DONE:
@@ -100,7 +103,8 @@ class KanbanBoard(QWidget):
         super().__init__(parent)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
-        cols = QHBoxLayout()
+        phone = adaptive.is_phone()
+        cols = QVBoxLayout() if phone else QHBoxLayout()               # telefonda sütunlar alt alta
         self.columns: Dict[str, _Column] = {}
         self.headers: Dict[str, QLabel] = {}
         for st in STORY_STATUS:
@@ -108,6 +112,8 @@ class KanbanBoard(QWidget):
             h = QLabel("")
             h.setProperty("role", "caps")
             col = _Column(st)
+            if phone:
+                col.setFixedHeight(150)
             col.dropped.connect(self.cardMoved)
             col.itemSelectionChanged.connect(self._sel)
             self.columns[st], self.headers[st] = col, h
@@ -115,7 +121,7 @@ class KanbanBoard(QWidget):
             box.addWidget(col, 1)
             cols.addLayout(box, 1)
         lay.addLayout(cols, 1)
-        row = QHBoxLayout()
+        row = adaptive.hbox()
         self.angle_box = QComboBox()
         for aid in CAMERA_ANGLES:
             self.angle_box.addItem(i18n.t(f"series.angle.{aid}"), aid)
@@ -125,6 +131,15 @@ class KanbanBoard(QWidget):
         row.addWidget(QLabel(i18n.t("series.angle")))
         row.addWidget(self.angle_box)
         row.addWidget(self.regen_btn)
+        self.move_box: Optional[QComboBox] = None
+        if adaptive.is_mobile():                                       # dokunmatik: seçili kartı sürüklemeden taşı
+            self.move_box = QComboBox()
+            self.move_box.addItem(i18n.t("series.move"), "")
+            for st in STORY_STATUS:
+                self.move_box.addItem(i18n.t(f"series.col.{st}"), st)
+            self.move_box.setAccessibleName(i18n.t("series.move"))
+            self.move_box.activated.connect(lambda _i: self._move_selected())
+            row.addWidget(self.move_box)
         row.addStretch(1)
         row.addWidget(self.drop_hint)
         lay.addLayout(row)
@@ -177,6 +192,15 @@ class KanbanBoard(QWidget):
 
     def set_selected_angle(self, angle: str) -> None:
         self.angle_box.setCurrentIndex(max(0, self.angle_box.findData(angle)))
+
+    def _move_selected(self) -> None:
+        box = self.move_box
+        if box is None:
+            return
+        status = str(box.currentData() or "")
+        box.setCurrentIndex(0)
+        if status and self.selected_id:
+            self.cardMoved.emit(self.selected_id, status)
 
     def _angle(self) -> None:
         if self.selected_id:

@@ -1,13 +1,14 @@
 """Fotoğraf sayfalarının ortak tabanı: servise bağlanma, satır içi hata kartı, meşgul göstergesi, plan/kota satırı, galeri bağlama."""
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 from PySide6.QtGui import QGuiApplication
-from PySide6.QtWidgets import QFileDialog, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QLayout, QVBoxLayout, QWidget
 
 from ...ai_engine.aiwidgets import AIPanel, handle_action, open_url_default
 from ...core import i18n
+from ...ui import adaptive, files
 from ...core.contracts import SmartAction, SmartError
 from ...ui.widgets.smart_error_card import SmartErrorCard
 from .service import PhotoService
@@ -32,7 +33,27 @@ class PhotoPageBase(QWidget):
         #: üstte "Görsel yapay zekâsı: … · Bağlı" + (gerekirse) kurulum kartı; yazı yardımcısı isteğe bağlı satır
         self.ai_panel = AIPanel(ctx, self.svc, ("image", "text"))
         self.open_url = open_url_default                       # testler tarayıcı açmasın diye değiştirilebilir
-        self.pick_image = lambda: QFileDialog.getOpenFileName(self, i18n.t("photo.pick_image"), "", "Images (*.png *.jpg *.jpeg *.webp)")[0]
+        # Android'de seçilen görsel content:// adresinden uygulama klasörüne kopyalanır (M20)
+        self.pick_image = lambda: files.pick_file(self, i18n.t("photo.pick_image"), "Images (*.png *.jpg *.jpeg *.webp)")
+        #: son araç çıktısı (arka plan silme, büyütme…) ve Android'de onun için Aç/Paylaş/Galeriye kaydet düğmeleri
+        self.tool_path: Optional[str] = None
+        self.tool_btns: List[QWidget] = []
+
+    def tool_file_row(self, note: QLabel) -> QLayout:
+        """Araç çıktısı için düğme satırı (Android; masaüstünde boş). Düğmeler ilk çıktıya kadar gizli."""
+        row = adaptive.hbox()
+        self.tool_btns = files.mobile_buttons(lambda: self.tool_path, note.setText, open_button=True)
+        for b in self.tool_btns:
+            b.hide()
+            row.addWidget(b)
+        if self.tool_btns:
+            row.addStretch(1)
+        return row
+
+    def remember_tool_output(self, path: str) -> None:
+        self.tool_path = path
+        for b in self.tool_btns:
+            b.show()
 
     @property
     def open_url(self):

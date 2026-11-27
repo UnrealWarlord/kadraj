@@ -4,6 +4,9 @@ Bu dosya **arayüz iskeletidir**; cevapları ``WizardAnswers`` olarak toplar. Ve
 oluşturma, boş alan, klasör iskeleti) Adım 2'de ``storage/folders.py``/``disk.py`` ile dolar:
 sihirbaz yalnızca ``core.settings.apply_wizard_answers`` çağırır. API anahtarı **bu adımda
 saklanmaz**; kasa arayüzü Adım 3/5'tedir ("yapıştır" cevabı yalnızca Ayarlar'a yönlendirir).
+
+Telefonda (mobil 6. adım) pencere ekran kadar, sorular kayar, düğmeler alt satıra geçer. Android'de kayıt yeri sorusu
+yalnız uygulamanın klasörünü sunar (masaüstü yok; "başka yer" seçicisi Android'in belge seçicisine bağlı değil).
 """
 from __future__ import annotations
 
@@ -12,12 +15,13 @@ from pathlib import Path
 from typing import List, Optional
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QDialog, QFileDialog, QFrame, QHBoxLayout, QLabel, QStackedWidget,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QDialog, QFileDialog, QFrame, QLabel, QScrollArea, QVBoxLayout, QWidget)
 
+from ... import device
 from ...core import i18n
 from ...core.contracts import WIZARD_API, WIZARD_PLACES, WIZARD_TASKS, WizardAnswers
 from ...core.settings import default_project_root
+from .. import adaptive
 from ..widgets.choice import ChoiceCard, ChoiceGroup
 from ..widgets.lockup import Lockup
 from ..widgets.squishy_button import SquishyButton
@@ -50,17 +54,18 @@ class WizardDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle(i18n.t("wizard.window_title"))
         self.setModal(True)
-        self.resize(960, 720)
+        adaptive.fit_dialog(self, 960, 720)
         self._step = 0
         self._custom_path = ""
         init = (initial or WizardAnswers()).normalized()
 
+        phone = adaptive.is_phone()
         root = QVBoxLayout(self)
-        root.setContentsMargins(36, 30, 36, 24)
-        root.setSpacing(18)
+        root.setContentsMargins(*((14, 12, 14, 12) if phone else (36, 30, 36, 24)))
+        root.setSpacing(adaptive.margin(18, 10))
 
-        head = QHBoxLayout()
-        head.addWidget(Lockup(wordmark_px=34, show_mark=True), 0, Qt.AlignmentFlag.AlignLeft)
+        head = adaptive.hbox()
+        head.addWidget(Lockup(wordmark_px=22 if phone else 34, show_mark=True), 0, Qt.AlignmentFlag.AlignLeft)
         head.addStretch(1)
         right = QVBoxLayout()
         self.step_label = QLabel("")
@@ -82,15 +87,23 @@ class WizardDialog(QDialog):
         root.addWidget(self.question)
         root.addWidget(self.hint)
 
-        self.stack = QStackedWidget()
+        self.stack = adaptive.stack()
         self.stack.addWidget(self._top_aligned(self._build_tasks(init)))
         self.stack.addWidget(self._top_aligned(self._build_places(init)))
         self.stack.addWidget(self._top_aligned(self._build_api(init)))
-        root.addWidget(self.stack, 1)
+        if adaptive.is_mobile():                              # kartlar ekrana sığmazsa dikeyde kayar
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QFrame.Shape.NoFrame)
+            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            scroll.setWidget(self.stack)
+            root.addWidget(scroll, 1)
+        else:
+            root.addWidget(self.stack, 1)
 
         foot = QFrame()
         foot.setProperty("role", "topbar")
-        fl = QHBoxLayout(foot)
+        fl = adaptive.hbox(foot)
         fl.setContentsMargins(0, 14, 0, 0)
         self.footer_hint = QLabel(i18n.t("wizard.change_later"))
         self.footer_hint.setProperty("role", "muted")
@@ -134,7 +147,12 @@ class WizardDialog(QDialog):
             cards.append(ChoiceCard(pid, i18n.t(f"wizard.place.{pid}"), sub, _PLACE_ICONS[pid],
                                     trailing=trailing))
         self.places = ChoiceGroup(cards, exclusive=True, columns=1)
-        self.places.set_selected([init.place])
+        place = init.place
+        if device.is_android():                               # yalnız uygulamanın klasörü (masaüstü ve seçici yok)
+            for card in cards:
+                card.setVisible(card.choice_id == "videos")
+            place = "videos"
+        self.places.set_selected([place])
         self.places.cards()[2].clicked.connect(self._pick_custom)
         return self.places
 

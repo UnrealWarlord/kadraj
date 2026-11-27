@@ -92,10 +92,10 @@ grep -q KADRAJ "$RECIPES/PySide6/__init__.py" || { echo "HATA: PySide6 tarifi de
 
 # --- 4. buildozer.spec ayarları -----------------------------------------------------------------------------------
 log "buildozer.spec"
-python - "$APP/buildozer.spec" "$VERSION" "$NATIVE" "$RECIPES/PySide6/kadraj.json" "$WHEEL_PYSIDE" "$QT_PLUGINS" <<'PY'
+python - "$APP/buildozer.spec" "$VERSION" "$NATIVE" "$RECIPES/PySide6/kadraj.json" "$WHEEL_PYSIDE" "$QT_PLUGINS" "$HERE" <<'PY'
 import json, re, shlex, sys, zipfile
 from pathlib import PurePosixPath
-spec, version, native, recipe_config, wheel, plugins = sys.argv[1:7]
+spec, version, native, recipe_config, wheel, plugins, here = sys.argv[1:8]
 text = open(spec, encoding="utf-8").read()
 # Deploy aracının seçtiği Qt modülleri ve açılışta yüklenen kütüphaneler → inceltilmiş PySide6 tarifinin ayarı
 extra = dict(arg.split("=", 1) for arg in shlex.split(
@@ -135,13 +135,20 @@ settings = {
     ]),
     "orientation": "portrait, landscape, portrait-reverse, landscape-reverse",
     "fullscreen": "0",
-    "icon.filename": "%(source.dir)s/kadraj/ui/assets/icon/kadraj-512.png",
+    # Başlatıcı simgesi: uyarlanır simge (packaging/android/res, tools/make_icons.py üretir; imzasız, M22). PNG yalnız
+    # Android 8 öncesi içindir (bizim alt sınırımız Android 9); yine de imzasız boyut seçilir (imza ≥256 px kuralı)
+    "icon.filename": "%(source.dir)s/kadraj/ui/assets/icon/kadraj-128.png",
+    "android.add_resources": f"{here}/res",
     # İzinler en az (M16): indirme/AI için ağ; ses kaydı için mikrofon (çalışma zamanında sorulur, M18)
     "android.permissions": "android.permission.INTERNET, android.permission.RECORD_AUDIO",
     "android.archs": "arm64-v8a",
     "android.allow_backup": "False",                                   # ayarlar/kasa bulut yedeğine gitmesin
     "android.accept_sdk_license": "True",
     "android.add_libs_arm64_v8a": f"{native}/*.so",                    # FFmpeg/ffprobe/QuickJS: nativeLibraryDir
+    # Dosya sağlayıcı + Python köprüsü (Aç, Paylaş, ekran açık kalsın; M20) ve onları manifest'e işleyen kanca;
+    # kanca p4a'nın geri tuşunu yutan kısayolunu da kaldırır (packaging/android/p4a_hook.py)
+    "android.add_src": f"{here}/java",
+    "p4a.hook": f"{here}/p4a_hook.py",
     "android.release_artifact": "apk",
     "android.debug_artifact": "apk",
 }
@@ -158,7 +165,7 @@ for key, value in settings.items():
         lines[hit] = f"{key} = {value}"
 open(spec, "w", encoding="utf-8").write("\n".join(lines) + "\n")
 PY
-grep -E '^(title|package\.|version|requirements|android\.(add_libs|permissions|api|minapi)|p4a\.(extra_args|local_recipes|commit))' "$APP/buildozer.spec"
+grep -E '^(title|package\.|version|requirements|icon\.|android\.(add_libs|add_src|add_resources|permissions|api|minapi)|p4a\.(extra_args|local_recipes|commit|hook))' "$APP/buildozer.spec"
 
 # --- 5. Derleme ---------------------------------------------------------------------------------------------------
 if [ -n "${KADRAJ_P4A_PREFETCH:-}" ]; then
@@ -176,5 +183,21 @@ suffix=$([ "$MODE" = debug ] && echo "-debug" || echo "-unsigned")
 out="$OUTDIR/KADRAJ-$VERSION-android-arm64$suffix.apk"
 mkdir -p "$OUTDIR"
 cp "$built" "$out"
+# Köprü sınıfları derlemeye girmiş olmalı (android.add_src); girmediyse "Aç"/"Paylaş" çalışmaz
+for cls in org/insibag/kadraj/KadrajFiles org/insibag/kadraj/Bridge; do
+  unzip -p "$out" 'classes*.dex' | grep -ac "L$cls;" >/dev/null || { echo "HATA: APK'da $cls yok" >&2; exit 1; }
+done
+# Kanca (p4a_hook.py) sağlayıcıyı manifest'e, android.add_resources uyarlanır simgeyi pakete koymuş olmalı
+aapt2=$(ls "$HOME"/.buildozer/android/platform/android-sdk/build-tools/*/aapt2 2>/dev/null | sort -V | tail -1 || true)
+if [ -n "$aapt2" ]; then
+  manifest=$("$aapt2" dump xmltree --file AndroidManifest.xml "$out")
+  printf '%s\n' "$manifest" | grep -c "org.insibag.kadraj.KadrajFiles" >/dev/null \
+    || { echo "HATA: manifest'te dosya sağlayıcı yok (p4a.hook çalışmadı)" >&2; exit 1; }
+  resources=$("$aapt2" dump resources "$out")
+  printf '%s\n' "$resources" | grep -A3 "mipmap/icon$" | grep -c "anydpi" >/dev/null \
+    || { echo "HATA: APK'da uyarlanır simge yok (android.add_resources)" >&2; exit 1; }
+else
+  echo "UYARI: aapt2 bulunamadı; manifest ve simge denetimi atlandı" >&2
+fi
 (cd "$OUTDIR" && sha256sum "$(basename "$out")" >"$(basename "$out").sha256")
 log "APK: $out ($(du -h "$out" | cut -f1))"

@@ -10,17 +10,18 @@ Pencere **durum tutmaz**: proje, geri alma geçmişi, seçili modül ``ctx``'ted
 from __future__ import annotations
 
 import threading
+import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from PySide6.QtCore import QByteArray, Qt, QUrl, Signal
-from PySide6.QtGui import QAction, QDesktopServices, QKeySequence
-from PySide6.QtWidgets import (QDockWidget, QFileDialog, QInputDialog, QMainWindow, QMenu, QMenuBar,
+from PySide6.QtCore import QByteArray, QEvent, QObject, Qt, QUrl, Signal
+from PySide6.QtGui import QAction, QDesktopServices, QKeySequence, QWindow
+from PySide6.QtWidgets import (QApplication, QDockWidget, QFileDialog, QInputDialog, QMainWindow, QMenu, QMenuBar,
                                QMessageBox, QStackedWidget, QVBoxLayout, QWidget)
 
-from ... import branding, updates
+from ... import branding, bridge, device, updates
 from ...core import i18n
-from ...core.contracts import SmartAction, SmartError, Topics, UiMode
+from ...core.contracts import PROJECT_FILE_NAME, JobStatus, SmartAction, SmartError, Topics, UiMode
 from ...core.registry import ModuleEntry
 from .dialogs import AboutDialog, ErrorDialog
 from .home import SimpleHome
@@ -28,6 +29,7 @@ from .legend import JobsPanel, LegendCenter, QuickStartPanel, SystemPanel
 from .pages import PageFrame, build_module_page
 from .topbar import TopBar
 from ..widgets.status_bar import StatusBar
+from .. import adaptive
 
 
 def _b64(data: QByteArray) -> str:
@@ -38,6 +40,34 @@ def _from_b64(text: str) -> QByteArray:
     return QByteArray.fromBase64(text.encode("ascii"))
 
 
+#: Ana ekranda "çıkmak için bir kez daha geri bas" süresi (saniye).
+BACK_EXIT_WINDOW_S = 2.5
+
+
+class _BackKey(QObject):
+    """Android geri tuşu (``Qt.Key_Back``), ana pencereye geldiğinde: açık sayfadan ana ekrana döner; ana ekranda
+    iki kez basılınca karşılanmaz ve Qt pencereyi kapatır (uygulamadan çıkış). Pencereler (iletişim kutuları, menüler)
+    kendi pencereleri olduğundan Qt onları kendisi kapatır."""
+
+    def __init__(self, window: "MainWindow") -> None:
+        super().__init__(window)
+        self.window = window
+        self._accepted = False
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802
+        kind = event.type()
+        if kind not in (QEvent.Type.KeyPress, QEvent.Type.KeyRelease) or not isinstance(obj, QWindow):
+            return False
+        if event.key() != Qt.Key.Key_Back or obj is not self.window.windowHandle():
+            return False
+        if kind == QEvent.Type.KeyPress and not event.isAutoRepeat():
+            self._accepted = self.window.handle_back()
+        if self._accepted:
+            event.accept()
+            return True
+        return False
+
+
 class MainWindow(QMainWindow):
     rewindRequested = Signal(int)
 
@@ -46,7 +76,14 @@ class MainWindow(QMainWindow):
         self.ctx, self.theme = ctx, theme
         self.setWindowTitle(branding.window_title())
         self.resize(1320, 860)
-        self.setMinimumSize(920, 620)
+        if not device.is_mobile():                 # telefon/tablette pencere ekranın kendisi (6. adım)
+            self.setMinimumSize(920, 620)
+        self._portrait_docks: List[QDockWidget] = []   # tablet dikeyde gizlenen Legend panelleri
+        self._back_at = 0.0                            # ana ekranda son geri tuşu (iki kez basınca çıkış)
+        if device.is_android():
+            self._back_key = _BackKey(self)
+            QApplication.instance().installEventFilter(self._back_key)
+        adaptive.touch_scroll_on_show(self)          # telefon/tablet: ana ekran ve paneller parmakla kayar
         self.setDockNestingEnabled(True)
         self._frame: Optional[PageFrame] = None
         self._error_dialogs: List[ErrorDialog] = []
@@ -65,8 +102,8 @@ class MainWindow(QMainWindow):
         self.setMenuWidget(top)
 
         # --- gövde -----------------------------------------------------------
-        self.body = QStackedWidget()
-        self.simple = QStackedWidget()
+        self.body = adaptive.stack()              # telefon/tablette boyutu yalnız görünen sayfa belirler
+        self.simple = adaptive.stack()
         self.home = SimpleHome(ctx)
         self.simple.addWidget(self.home)
         self.legend = LegendCenter(ctx)
@@ -136,7 +173,7 @@ class MainWindow(QMainWindow):
         self._act("undo", self.undo, "Ctrl+Z")
         self._act("redo", self.redo, "Ctrl+Shift+Z")
         self._act("undo_rewind", self.undo_rewind)
-        self._act("toggle_mode", self.toggle_mode, "Ctrl+M")
+        self._act("toggle_mode", self.toggle_mode, "Ctrl+M").setEnabled(device.legend_allowed())
         self._act("reset_layout", self.reset_layout)
         self._act("large_text", lambda c: self._set_a11y("large_text", c), checkable=True)
         self._act("high_contrast", lambda c: self._set_a11y("high_contrast", c), checkable=True)
@@ -262,6 +299,9 @@ class MainWindow(QMainWindow):
         menu.addAction(a["open"])
         menu.addAction(a["save"])
         menu.addAction(a["close"])
+        if device.is_mobile():                      # dar çubukta (telefon, dikey tablet) "10 Dk Önceye Döndür" burada
+            menu.addSeparator()
+            menu.addAction(self.topbar.rewind_action)
         menu.addSeparator()
         sub = menu.addMenu(i18n.t("menu.recent"))
         sub.aboutToShow.connect(lambda s=sub: self._fill_recent_menu(s))
@@ -279,6 +319,8 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ mod
     def toggle_mode(self) -> None:
+        if not device.legend_allowed():            # telefonda yalnız Basit Mod (M1)
+            return
         self.ctx.set_ui_mode(UiMode.LEGEND if self.ctx.ui_mode is UiMode.SIMPLE else UiMode.SIMPLE)
 
     def _apply_mode(self, mode: UiMode, animate: bool) -> None:
@@ -303,6 +345,7 @@ class MainWindow(QMainWindow):
         self.topbar.mode_switch._resize()
         self._reopen_current_module()
         self.topbar.retranslate()
+        self._sync_portrait_docks()
         self.status.set_message(i18n.t("status.mode_legend" if legend else "status.mode_simple"), 2500)
 
     # ------------------------------------------------------------------ gezinti
@@ -327,12 +370,28 @@ class MainWindow(QMainWindow):
         self._frame.backRequested.connect(self.go_home)
         self.simple.addWidget(self._frame)
         self.simple.setCurrentWidget(self._frame)
+        adaptive.touch_scroll_all(self._frame)            # telefon/tablet: sayfa ve listeler parmakla kayar
 
     def _clear_frame(self) -> None:
         if self._frame is not None:
             self.simple.removeWidget(self._frame)
             self._frame.deleteLater()
             self._frame = None
+
+    def handle_back(self) -> bool:
+        """Geri tuşu: açık sayfa varsa ana ekrana (``True``). Ana ekranda ilk basış ipucu gösterir (``True``),
+        süre içinde ikinci basış ``False`` döner: tuş karşılanmaz, Qt pencereyi kapatır."""
+        if self.ctx.current_module is not None:
+            self.go_home()
+            self._back_at = 0.0
+            return True
+        now = time.monotonic()
+        if self._back_at and now - self._back_at <= BACK_EXIT_WINDOW_S:
+            self._back_at = 0.0
+            return False
+        self._back_at = now
+        self.status.set_message(i18n.t("back.exit_hint"), int(BACK_EXIT_WINDOW_S * 1000))
+        return True
 
     def go_home(self) -> None:
         self.ctx.current_module = None
@@ -355,6 +414,8 @@ class MainWindow(QMainWindow):
             self._show_simple_module(entry)
 
     def show_workspace(self, ws: str) -> None:
+        if not device.legend_allowed():
+            return
         if self.ctx.ui_mode is not UiMode.LEGEND:
             self.ctx.set_ui_mode(UiMode.LEGEND)
         self.legend.show_workspace(ws)
@@ -375,15 +436,39 @@ class MainWindow(QMainWindow):
         raw = self.ctx.settings.get(f"window.legend_state.{ws}")
         if raw:
             self.restoreState(_from_b64(str(raw)))
+        self._portrait_docks = []
         for d in self.docks:
             d.setVisible(self.ctx.ui_mode is UiMode.LEGEND)
+        self._sync_portrait_docks()
 
     def reset_layout(self) -> None:
         if self._default_dock_state is not None:
             self.restoreState(self._default_dock_state)
+        self._portrait_docks = []
         for d in self.docks:
             d.setFloating(False)
             d.setVisible(self.ctx.ui_mode is UiMode.LEGEND)
+        self._sync_portrait_docks()
+
+    def _sync_portrait_docks(self) -> None:
+        """Tablet dikey tutuşta Legend panelleri gizlenir, orta alan ekranın tamamını alır; yatayda gizlenenler geri gelir
+        (kullanıcının kapattığı panel kapalı kalır). Masaüstünde ve Basit Mod'da hiçbir şey yapmaz."""
+        if not device.is_mobile():
+            return
+        legend = self.ctx.ui_mode is UiMode.LEGEND
+        if legend and self.width() < self.height():
+            for d in self.docks:
+                if d.isVisible() and not d.isFloating():
+                    self._portrait_docks.append(d)
+                    d.hide()
+        elif self._portrait_docks:
+            hidden, self._portrait_docks = self._portrait_docks, []
+            for d in hidden:
+                d.setVisible(legend)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._sync_portrait_docks()
 
     def _restore_geometry(self) -> None:
         raw = self.ctx.settings.get("window.geometry")
@@ -412,9 +497,30 @@ class MainWindow(QMainWindow):
 
     def open_folder(self) -> None:
         start = str(self.ctx.settings.get("project_root") or Path.home())
+        if device.is_android():                    # klasör seçici content:// döner; projeler uygulamanın alanında (M20)
+            self._pick_project_android(Path(start))
+            return
         chosen = QFileDialog.getExistingDirectory(self, i18n.t("project.open_title"), start)
         if chosen:
             self.open_recent(chosen)
+
+    def project_folders(self, root: Path) -> List[Path]:
+        """``root`` altındaki proje klasörleri (içinde ``proje.kadraj`` olan), en son değişen önce."""
+        try:
+            found = [f.parent for f in root.glob(f"*/{PROJECT_FILE_NAME}") if f.is_file()]
+        except OSError:
+            return []
+        return sorted(found, key=lambda d: (d / PROJECT_FILE_NAME).stat().st_mtime, reverse=True)
+
+    def _pick_project_android(self, root: Path) -> None:
+        folders = self.project_folders(root)
+        if not folders:
+            self.status.set_message(i18n.t("project.none_found"), 6000)
+            return
+        names = [d.name for d in folders]
+        name, ok = QInputDialog.getItem(self, i18n.t("project.open_title"), i18n.t("project.pick_label"), names, 0, False)
+        if ok and name in names:
+            self.open_recent(str(folders[names.index(name)]))
 
     def open_recent(self, path: str) -> None:
         if self.ctx.open_project(path):
@@ -477,6 +583,8 @@ class MainWindow(QMainWindow):
     def _sync_jobs(self) -> None:
         jobs = self.ctx.jobs.list()
         self.status.set_jobs(len([j for j in jobs if not j.finished]), len(jobs))
+        # Android: indirme/dışa aktarma sürerken ekran kararmasın (uygulama arka plana düşüp durmasın; M20)
+        bridge.screen.set("jobs", any(j.status in (JobStatus.QUEUED, JobStatus.RUNNING) for j in jobs))
 
     def show_error(self, err: SmartError) -> None:
         if not isinstance(err, SmartError):
@@ -521,7 +629,8 @@ class MainWindow(QMainWindow):
                                                 "reduced_motion": bool(self.ctx.settings.get("a11y.reduced_motion", False))})
         self.topbar.mode_switch._resize()
         self.topbar._on_theme()
-        self.setMinimumWidth(self.theme.tokens.px(920))
+        if not device.is_mobile():
+            self.setMinimumWidth(self.theme.tokens.px(920))
 
     def show_about(self) -> None:
         AboutDialog(self).exec()

@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QLabel, QScroll
 
 from ...core import i18n
 from ...core.contracts import RecentEntry
+from .. import adaptive
 from ..widgets.drop_zone import DropZone
 from ..widgets.help_bubble import MascotTip
 from ..widgets.squishy_button import SquishyButton
@@ -90,13 +91,16 @@ class SimpleHome(QWidget):
         self._inner.setObjectName("Root")
         scroll.setWidget(self._inner)
         self._lay = QVBoxLayout(self._inner)
-        self._lay.setContentsMargins(40, 30, 40, 30)
-        self._lay.setSpacing(18)
+        side, edge = adaptive.margin(40, 14), adaptive.margin(30, 14)
+        self._lay.setContentsMargins(side, edge, side, edge)
+        self._lay.setSpacing(adaptive.margin(18, 12))
 
         self.greeting = QLabel("")
         self.greeting.setProperty("role", "title")
+        self.greeting.setWordWrap(True)
         self.sub = QLabel("")
         self.sub.setProperty("role", "muted")
+        self.sub.setWordWrap(True)
         self._lay.addWidget(self.greeting)
         self._lay.addWidget(self.sub)
 
@@ -111,7 +115,8 @@ class SimpleHome(QWidget):
         self.resume_title.setProperty("role", "h2")
         self._lay.addWidget(self.resume_title)
         self._resume_host = QWidget()
-        self._resume = QHBoxLayout(self._resume_host)
+        # telefonda son projeler alt alta (yan yana üç kart sığmaz)
+        self._resume = QVBoxLayout(self._resume_host) if adaptive.is_phone() else QHBoxLayout(self._resume_host)
         self._resume.setContentsMargins(0, 0, 0, 0)
         self._resume.setSpacing(16)
         self._lay.addWidget(self._resume_host)
@@ -119,6 +124,7 @@ class SimpleHome(QWidget):
         self.drop = DropZone("", "", "")
         self.drop.filesDropped.connect(self.filesDropped.emit)
         self.drop.browseRequested.connect(self.openFolderRequested.emit)
+        self.drop.setVisible(not adaptive.is_mobile())      # dokunmatik cihazda sürükle-bırak yok
         self._lay.addWidget(self.drop)
         self.tip = MascotTip("", "", "")
         self.tip.actionClicked.connect(self.helpRequested.emit)
@@ -168,12 +174,12 @@ class SimpleHome(QWidget):
                 card = _RecentCard(r)
                 card.clicked.connect(self.openProjectRequested.emit)
                 self._resume.addWidget(card, 1)
-            for _ in range(3 - len(recents)):
+            for _ in range(0 if adaptive.is_phone() else 3 - len(recents)):
                 self._resume.addStretch(1)
         else:
             empty = QFrame()
             empty.setProperty("role", "card")
-            el = QHBoxLayout(empty)
+            el = adaptive.hbox(empty)
             el.setContentsMargins(20, 16, 20, 16)
             msg = QLabel(i18n.t("home.resume.empty"))
             msg.setProperty("role", "muted")
@@ -194,8 +200,9 @@ class SimpleHome(QWidget):
             self._grid.takeAt(0)
         for i, c in enumerate(self.cards):
             self._grid.addWidget(c, i // cols, i % cols)
-        for col in range(cols):
-            self._grid.setColumnStretch(col, 1)
+        # boşalan sütunun esnemesi sıfırlanır; yoksa boş sütun yer kaplar ve kartlar daralır (telefonda tek sütun)
+        for col in range(max(cols, self._grid.columnCount())):
+            self._grid.setColumnStretch(col, 1 if col < cols else 0)
 
     def resizeEvent(self, e) -> None:
         super().resizeEvent(e)

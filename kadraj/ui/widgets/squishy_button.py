@@ -4,6 +4,9 @@ Basit'te hap şekilli, basınca yatayda genişleyip dikeyde ezilen (``QPropertyA
 Legend'de keskin köşeli ve sadece 1 px aşağı kayan düz buton. Tokenlardan boyanır, tema
 değişince kendini günceller. Varyantlar: ``primary`` (dolgulu), ``secondary`` (çerçeveli),
 ``ghost`` (çerçevesiz), ``danger``; ``accent`` verilirse o modül rengiyle dolar.
+
+Telefonda (mobil 6. adım) düğme dar ekranda daralabilir: önce iç boşluk küçülür, metin yine sığmazsa sonu "…" ile
+kısalır (tam metin ``text()``/erişilebilir adda ve ipucunda kalır). En küçük genişlik ``PHONE_MIN_WIDTH``'i geçmez.
 """
 from __future__ import annotations
 
@@ -14,6 +17,7 @@ from PySide6.QtCore import (QEasingCurve, QPointF, QPropertyAnimation, QRectF, Q
 from PySide6.QtGui import QColor, QFontMetrics, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QPushButton, QSizePolicy, QWidget
 
+from ... import device
 from ...core.contracts import Accent
 from .. import fonts
 from ..theme.manager import ThemedMixin
@@ -21,6 +25,10 @@ from ..theme.tokens import mix
 from .icons import draw_icon
 
 VARIANTS = ("primary", "secondary", "ghost", "danger")
+#: Telefonda bir düğmenin isteyebileceği en küçük genişlik (px); uzun metin bundan dar alanda "…" ile kısalır.
+PHONE_MIN_WIDTH = 200
+#: Telefonda daralan düğmenin metin ile kenar arasında bıraktığı en az boşluk (px).
+PHONE_MIN_PAD = 10
 
 
 class SquishyButton(ThemedMixin, QPushButton):
@@ -31,10 +39,12 @@ class SquishyButton(ThemedMixin, QPushButton):
         self._icon = icon
         self._accent = accent
         self._squish = 0.0
+        self._compact = device.is_phone()                    # dar ekran: daralabilir, gerekirse metni kısaltır
         self._anim = QPropertyAnimation(self, b"squish", self)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+        horizontal = QSizePolicy.Policy.Preferred if self._compact else QSizePolicy.Policy.Minimum
+        self.setSizePolicy(horizontal, QSizePolicy.Policy.Fixed)
         self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
         self.pressed.connect(lambda: self._animate(1.0, 90))
         self.released.connect(lambda: self._animate(0.0, 260, spring=True))
@@ -108,7 +118,13 @@ class SquishyButton(ThemedMixin, QPushButton):
         return QSize(fm.horizontalAdvance(self.text()) + icon_w + 2 * pad, h)
 
     def minimumSizeHint(self) -> QSize:
-        return self.sizeHint()
+        hint = self.sizeHint()
+        if not self._compact:
+            return hint
+        fm = QFontMetrics(self._font())
+        icon_w = (self.tk.ui_px + 8) if self._icon else 0
+        tight = fm.horizontalAdvance(self.text()) + icon_w + 2 * PHONE_MIN_PAD
+        return QSize(min(hint.width(), tight, PHONE_MIN_WIDTH), hint.height())
 
     # -- renkler ----------------------------------------------------------
     def _colors(self):
@@ -174,16 +190,22 @@ class SquishyButton(ThemedMixin, QPushButton):
         p.setFont(self._font())
         p.setPen(QColor(fg))
         fm = QFontMetrics(self._font())
-        text_w = fm.horizontalAdvance(self.text())
+        text = self.text()
+        text_w = fm.horizontalAdvance(text)
         icon_sz = tk.ui_px + 2
-        total = text_w + ((icon_sz + 8) if self._icon else 0)
+        icon_w = (icon_sz + 8) if self._icon else 0
+        room = int(rect.width()) - icon_w - 2 * PHONE_MIN_PAD
+        if text_w > room > 0:                                 # dar düğme (telefon): sonu "…" ile kısalır
+            text = fm.elidedText(text, Qt.TextElideMode.ElideRight, room)
+            text_w = fm.horizontalAdvance(text)
+        total = text_w + icon_w
         x = rect.center().x() - total / 2
         if self._icon:
             draw_icon(p, QRectF(x, rect.center().y() - icon_sz / 2, icon_sz, icon_sz), self._icon, fg,
                       stroke=2.0)
             x += icon_sz + 8
         ty = rect.center().y() + (fm.ascent() - fm.descent()) / 2
-        p.drawText(QPointF(x, ty), self.text())
+        p.drawText(QPointF(x, ty), text)
         p.end()
 
     def enterEvent(self, event) -> None:

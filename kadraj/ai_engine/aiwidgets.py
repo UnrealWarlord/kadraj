@@ -15,8 +15,10 @@ from PySide6.QtGui import QDesktopServices
 from PySide6.QtCore import QUrl
 from PySide6.QtWidgets import (QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget)
 
+from .. import device
 from ..core import i18n
 from ..core.contracts import PingResult, SmartAction, SmartError, Topics
+from ..ui import adaptive
 from ..ui.theme.manager import current_tokens
 from ..ui.widgets.smart_error_card import SmartErrorCard
 from ..ui.widgets.squishy_button import SquishyButton
@@ -94,7 +96,8 @@ class SetupCard(QFrame):
         self.open_url: Callable[[str], Any] = open_url_default
         self._card: Optional[SmartErrorCard] = None
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(18, 14, 18, 14)
+        side = adaptive.margin(18, 12)
+        lay.setContentsMargins(side, 14, side, 14)
         lay.setSpacing(8)
         title = QLabel(i18n.t(f"ai.setup.title.{kind}"))
         title.setProperty("role", "h2")
@@ -105,8 +108,8 @@ class SetupCard(QFrame):
             lb = QLabel(text)
             lb.setWordWrap(True)
             lay.addWidget(lb)
-        # servis seçimi + anahtar sayfası
-        row = QHBoxLayout()
+        # servis seçimi + anahtar sayfası (telefonda sığmayan alt satıra)
+        row = adaptive.hbox()
         row.addWidget(QLabel(i18n.t("ai.setup.service")))
         self.combo = QComboBox()
         for pid in KEY_CHOICES[kind]:
@@ -119,9 +122,10 @@ class SetupCard(QFrame):
         self.url_label = QLabel("")
         self.url_label.setProperty("role", "hint")
         self.url_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.url_label.setWordWrap(adaptive.is_mobile())
         lay.addWidget(self.url_label)
         # anahtar kutusu
-        key_row = QHBoxLayout()
+        key_row = adaptive.hbox()
         self.key_edit = QLineEdit()
         self.key_edit.setEchoMode(QLineEdit.EchoMode.Password)           # ekranda hep gizli
         self.key_edit.setPlaceholderText(i18n.t("ai.setup.key_placeholder"))
@@ -140,23 +144,29 @@ class SetupCard(QFrame):
         cost.setProperty("role", "hint")
         cost.setWordWrap(True)
         lay.addWidget(cost)
-        # ücretsiz yerel yol
+        # ücretsiz yerel yol (Ollama / ComfyUI bu bilgisayarda). Android'de yok: bölüm gizli.
+        local_part = QWidget()
+        local_lay = QVBoxLayout(local_part)
+        local_lay.setContentsMargins(0, 0, 0, 0)
+        local_lay.setSpacing(8)
+        local_part.setVisible(not device.is_android())
+        lay.addWidget(local_part)
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        lay.addWidget(sep)
+        local_lay.addWidget(sep)
         local_id = LOCAL_PROVIDER[kind]
         lt = QLabel(i18n.t("ai.setup.local_title"))
         lt.setProperty("role", "h2")
         lt.setWordWrap(True)
-        lay.addWidget(lt)
+        local_lay.addWidget(lt)
         pi = aierrors.info(local_id)
         group = "text" if kind == "text" else "image"
         for i in range(1, 5):
             lb = QLabel(i18n.t(f"ai.setup.local_{group}.{i}", local_url=pi.local_url, pull_cmd=f"ollama pull {aierrors.OLLAMA_SUGGESTED}"))
             lb.setWordWrap(True)
             lb.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-            lay.addWidget(lb)
-        lrow = QHBoxLayout()
+            local_lay.addWidget(lb)
+        lrow = adaptive.hbox()
         self.open_local = SquishyButton(i18n.t("ai.setup.open_local"), variant="secondary")
         self.recheck = SquishyButton(i18n.t("ai.setup.recheck"), variant="ghost")
         self.local_label = QLabel("")
@@ -165,7 +175,7 @@ class SetupCard(QFrame):
         lrow.addWidget(self.open_local)
         lrow.addWidget(self.recheck)
         lrow.addWidget(self.local_label, 1)
-        lay.addLayout(lrow)
+        local_lay.addLayout(lrow)
         self.combo.currentIndexChanged.connect(self._on_service)
         self.open_key.clicked.connect(self._open_key)
         self.save_btn.clicked.connect(self.save_and_test)
@@ -180,7 +190,7 @@ class SetupCard(QFrame):
 
     def _on_service(self) -> None:
         pi = aierrors.info(self.provider_id())
-        self.url_label.setText(pi.key_url)
+        self.url_label.setText(adaptive.breakable(pi.key_url))
         self.key_edit.clear()
         self.result.setText("")
         self._clear_card()

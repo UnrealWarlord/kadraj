@@ -17,11 +17,12 @@ from PySide6.QtWidgets import (QAbstractItemView, QFrame, QGridLayout, QHBoxLayo
                                QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
 from ...ai_engine import analytics
-from ...core import i18n
+from ...core import i18n, sysmon
 from ...core.contracts import WORKSPACES, Job, JobStatus, Topics, UiMode
 from ...core.registry import ModuleEntry
 from ...modules.series.charts import AnalyticsPanel
 from ...storage import disk
+from .. import adaptive
 from ..widgets.squishy_button import SquishyButton
 from ..widgets.task_card import TaskCard
 from .home import human_ago
@@ -283,7 +284,8 @@ class SystemPanel(QWidget):
         lay.setContentsMargins(10, 8, 10, 8)
         lay.setVerticalSpacing(6)
         self._vals: Dict[str, QLabel] = {}
-        for i, key in enumerate(("cpu", "ram", "gpu", "vram", "disk", "ping")):
+        shown = sysmon.available_keys()                 # Android'de işlemci ve ekran kartı satırı yok (M21)
+        for i, key in enumerate(sysmon.PANEL_KEYS):
             cap = QLabel(i18n.upper(i18n.t(f"sys.{key}")))
             cap.setProperty("role", "caps")
             val = QLabel("—")
@@ -291,7 +293,9 @@ class SystemPanel(QWidget):
             lay.addWidget(cap, i, 0)
             lay.addWidget(val, i, 1, Qt.AlignmentFlag.AlignRight)
             self._vals[key] = val
-        lay.setRowStretch(6, 1)
+            cap.setVisible(key in shown)
+            val.setVisible(key in shown)
+        lay.setRowStretch(len(sysmon.PANEL_KEYS), 1)
         self.timer = QTimer(self)
         self.timer.setInterval(2000)
         self.timer.timeout.connect(self.sample_now)
@@ -330,6 +334,7 @@ class _LazyTab(QWidget):
         if self.page is None:
             self.page = build_module_page(self.ctx, self.entry, UiMode.LEGEND)
             self._lay.addWidget(self.page)
+            adaptive.touch_scroll_all(self.page)          # tablet: listeler/tablolar parmakla kayar
         return self.page
 
 
@@ -350,7 +355,7 @@ class LegendCenter(QWidget):
         lay.setSpacing(0)
         bar = QFrame()
         bar.setProperty("role", "topbar")
-        bl = QHBoxLayout(bar)
+        bl = adaptive.hbox(bar)                           # tablet dikeyde düğmeler alt satıra geçebilir
         bl.setContentsMargins(12, 6, 12, 6)
         bl.setSpacing(6)
         self._buttons: Dict[str, QPushButton] = {}
@@ -364,8 +369,8 @@ class LegendCenter(QWidget):
             self._buttons[ws] = b
         bl.addStretch(1)
         lay.addWidget(bar)
-        self.stack = QStackedWidget()
-        lay.addWidget(self.stack, 1)
+        self.stack = adaptive.stack()                     # mobilde boy yalnız açık çalışma alanından
+        lay.addWidget(adaptive.scroll_both(self.stack), 1)  # tablet dikey: sığmayan sayfa kesilmez, kayar
 
         self.hub = ProjectHub(ctx)
         self.hub.openProjectRequested.connect(self.openProjectRequested.emit)
@@ -375,7 +380,7 @@ class LegendCenter(QWidget):
         self._tabs: Dict[str, QTabWidget] = {}
         self.stack.addWidget(self.hub)
         for ws in WORKSPACES[1:]:
-            tabs = QTabWidget()
+            tabs = adaptive.tabs()
             tabs.currentChanged.connect(lambda _i, t=tabs: self._ensure_current(t))
             self._tabs[ws] = tabs
             self._pages[ws] = tabs

@@ -74,6 +74,13 @@ def install(home: Path, *, fault: bool = True) -> None:
         faulthandler.enable(fh, all_threads=True)
 
 
+def note(text: str) -> None:
+    """Açılış aşamasını bir satır olarak logcat'e yazar: python-for-android ``stdout``'u ``python`` etiketiyle logcat'e
+    yönlendirir. Cihazda ``adb logcat -s python`` ve CI'daki emülatör denemesi (``packaging/android/smoke_emulator.sh``)
+    açılışın hangi aşamada olduğunu buradan izler."""
+    print(f"{APP_NAME}: {text}", flush=True)
+
+
 def show_fatal(text: str) -> Optional[Path]:
     """Açılışı durduran hatayı günlüğe yazar ve ekranda gösterir. Qt yoksa yalnız yazar. Günlük yolunu döner."""
     path = append(text)

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- tools/make_icons.py üretir (kaynak: kadraj/ui/assets/icon/kadraj.svg); elle düzenlenmez. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:translateX="25.2"
+        android:translateY="25.2"
+        android:scaleX="2.4"
+        android:scaleY="2.4">
+        <path
+            android:pathData="M3 8V4h4"
+            android:strokeColor="#D4A24C"
+            android:strokeWidth="2.2"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M17 4h4v4"
+            android:strokeColor="#D4A24C"
+            android:strokeWidth="2.2"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M21 16v4h-4"
+            android:strokeColor="#D4A24C"
+            android:strokeWidth="2.2"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M7 20H3v-4"
+            android:strokeColor="#D4A24C"
+            android:strokeWidth="2.2"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M9,12a3,3 0 1,0 6,0a3,3 0 1,0 -6,0"
+            android:fillColor="#D4A24C" />
+    </group>
+</vector>

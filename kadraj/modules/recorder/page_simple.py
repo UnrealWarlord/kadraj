@@ -14,10 +14,11 @@ from PySide6.QtWidgets import (QButtonGroup, QFrame, QGridLayout, QHBoxLayout, Q
 
 from ...core import i18n
 from ...core.contracts import Job
+from ...ui import adaptive
 from ...ui.widgets.squishy_button import SquishyButton
 from .dsp import FLOOR_DB, LevelAnalysis
 from .location import RecordingLocationBar, RecordingResultCard
-from .page_base import RecorderPageBase
+from .page_base import RecorderPageBase, transcribe_available
 from .takes import Take
 from .teleprompter import SPEEDS
 from .widgets import (BigRecordButton, PillButton, PrompterView, SegmentedVU, ToggleSwitch, WaveformView,
@@ -42,22 +43,24 @@ class _TakeRow(QFrame):
         outer.addLayout(lay)
         col = QVBoxLayout()
         col.setSpacing(0)
-        name = QLabel(take.name)
+        name = QLabel(adaptive.breakable(take.name))                      # telefonda uzun dosya adı satıra bölünür
         name.setProperty("role", "h2")
+        name.setWordWrap(adaptive.is_mobile())
         meta = QLabel(f"{page.fmt_duration(take.duration_s)} · {take.sample_rate / 1000:g} kHz"
                       + (f" · {i18n.t('recorder.take.studio')}" if take.is_master else "")
                       + (f" · {i18n.t('recorder.take.srt_ready')}" if take.has_srt else ""))
         meta.setProperty("role", "muted")
+        meta.setWordWrap(adaptive.is_mobile())
         col.addWidget(name)
         col.addWidget(meta)
         lay.addLayout(col, 1)
         self.wave = WaveformView()
         self.wave.setMinimumWidth(60)
         lay.addWidget(self.wave, 1)
-        actions = QHBoxLayout()
-        actions.setSpacing(8)
+        actions = adaptive.hbox(spacing=8)
         outer.addLayout(actions)
         self.btn_tr = SquishyButton(i18n.t("recorder.take.transcribe"), variant="ghost")
+        self.btn_tr.setVisible(transcribe_available())
         self.btn_ms = SquishyButton(i18n.t("recorder.take.master"), variant="ghost")
         self.btn_ms.setVisible(not take.is_master)
         actions.addWidget(self.btn_tr)
@@ -112,7 +115,8 @@ class RecorderSimplePage(RecorderPageBase):
     def _build_left(self) -> QFrame:
         card = self._card()
         lay = QVBoxLayout(card)
-        lay.setContentsMargins(26, 22, 26, 22)
+        side = adaptive.margin(26, 14)
+        lay.setContentsMargins(side, 22, side, 22)
         lay.setSpacing(16)
 
         head = QHBoxLayout()
@@ -133,7 +137,7 @@ class RecorderSimplePage(RecorderPageBase):
         lay.addLayout(self.error_slot)
 
         row = QHBoxLayout()
-        row.setSpacing(22)
+        row.setSpacing(adaptive.margin(22, 14))
         self.record_btn = BigRecordButton()
         self.record_btn.set_labels(i18n.t("recorder.a11y.start"), i18n.t("recorder.a11y.stop"))
         self.record_btn.clicked.connect(self.toggle_record)
@@ -145,7 +149,8 @@ class RecorderSimplePage(RecorderPageBase):
         self.status_label.setWordWrap(True)
         self.timer_label = QLabel("00:00")
         self.timer_label.setObjectName("rec_timer")
-        self.timer_label.setStyleSheet("font-size: 72px; font-weight: 900; font-family: 'Nunito';")
+        timer_px = adaptive.margin(72, 48)                               # telefonda süre daha küçük
+        self.timer_label.setStyleSheet(f"font-size: {timer_px}px; font-weight: 900; font-family: 'Nunito';")
         col.addStretch(1)
         col.addWidget(self.status_label)
         col.addWidget(self.timer_label)
@@ -178,14 +183,16 @@ class RecorderSimplePage(RecorderPageBase):
         self.gate_title.setProperty("role", "h2")
         self.gate_hint = QLabel("")
         self.gate_hint.setProperty("role", "muted")
+        if adaptive.is_mobile():
+            self.gate_title.setWordWrap(True)
+            self.gate_hint.setWordWrap(True)
         gcol.addWidget(self.gate_title)
         gcol.addWidget(self.gate_hint)
         gate.addWidget(self.gate_switch)
         gate.addLayout(gcol, 1)
         lay.addLayout(gate)
 
-        test = QHBoxLayout()
-        test.setSpacing(14)
+        test = adaptive.hbox(spacing=14)
         self.test_btn = SquishyButton(i18n.t("recorder.test.button"), variant="secondary", icon="mic")
         self.test_btn.clicked.connect(self._on_test)
         self.apply_btn = SquishyButton(i18n.t("recorder.test.apply"), variant="primary", accent="mint")
@@ -216,6 +223,7 @@ class RecorderSimplePage(RecorderPageBase):
         self.transcribe_btn = SquishyButton(i18n.t("recorder.transcribe.button"), variant="primary", accent="lavender",
                                             icon="book")
         self.transcribe_btn.clicked.connect(lambda: self.request_transcribe())
+        self.transcribe_btn.setVisible(transcribe_available())          # Android paketinde whisper yok
         lay.addWidget(self.transcribe_btn, 0, Qt.AlignmentFlag.AlignLeft)
         self.job_label = QLabel("")
         self.job_label.setProperty("role", "muted")
@@ -228,7 +236,8 @@ class RecorderSimplePage(RecorderPageBase):
     def _build_right(self) -> QFrame:
         card = self._card()
         lay = QVBoxLayout(card)
-        lay.setContentsMargins(22, 22, 22, 22)
+        side = adaptive.margin(22, 14)
+        lay.setContentsMargins(side, 22, side, 22)
         lay.setSpacing(14)
         title = QLabel(i18n.t("recorder.prompter.title"))
         title.setProperty("role", "title")
@@ -260,8 +269,7 @@ class RecorderSimplePage(RecorderPageBase):
             pills.addWidget(b)
         pills.addStretch(1)
         lay.addLayout(pills)
-        ctl = QHBoxLayout()
-        ctl.setSpacing(10)
+        ctl = adaptive.hbox(spacing=10)
         self.play_btn = SquishyButton(i18n.t("recorder.prompter.play"), variant="secondary")
         self.play_btn.clicked.connect(self._on_play)
         self.edit_btn = SquishyButton(i18n.t("recorder.prompter.edit"), variant="ghost")

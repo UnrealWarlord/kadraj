@@ -202,6 +202,23 @@ def test_plain_update_keeps_the_updater_unseeded(svc, ctx):
     assert seen == [False]
 
 
+def test_error_card_update_button_works_before_settings_was_opened(ctx, qtbot, monkeypatch):
+    """İndirme hatası kartındaki "Bileşenleri güncelle": Ayarlar sayfası hiç açılmamışken de güncelleme başlar
+    (konuyu dinleyen Ayarlar servisi ana pencere kurulurken sayfalarla birlikte başlar)."""
+    from kadraj.modules.downloader import errors as dl_errors
+    from kadraj.ui.shell.main_window import MainWindow
+    calls = []
+    monkeypatch.setattr(S.SettingsService, "update_components", lambda self: calls.append(self))
+    monkeypatch.setattr(dl_errors.components, "have", lambda _n: True)
+    card = dl_errors.explain(RuntimeError("ERROR: Unable to extract uploader id; please report this issue"))
+    update = next(a for a in card.actions if a.id == "update_components")
+    win = MainWindow(ctx, ctx.theme)
+    qtbot.addWidget(win)
+    win.show_error(card)
+    win._error_dialogs[-1].card.actionTriggered.emit(update)       # karttaki "Bileşenleri güncelle"
+    assert len(calls) == 1 and calls[0] is ctx.service("settings")
+
+
 def test_source_labels_say_where_each_component_comes_from(svc):
     assert S.source_label("bundled") == "Pakette"
     assert S.source_label("updated") == "Güncellendi"

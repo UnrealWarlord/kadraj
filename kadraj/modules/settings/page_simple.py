@@ -2,6 +2,9 @@
 
 Sayfa yalnızca görünümdür: durum ``SettingsService``'tedir. Göz düğmesi tam anahtarı hiçbir
 zaman göstermez; yalnızca ``mask_preview`` çıktısını (ilk 6 + … + son 4) gösterir.
+
+Telefonda (mobil 6. adım) mod kartları yoktur (yalnız Basit Mod), satırlar ekrana sığmayanı alt satıra geçirir
+(``adaptive.hbox``); Android'de yerel çalıştırıcılar (Ollama, ComfyUI, yerel Whisper) kartı gizlidir.
 """
 from __future__ import annotations
 
@@ -13,10 +16,12 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFrame, QHBoxL
                                QLabel, QLayout, QLineEdit, QMessageBox, QProgressBar, QPushButton,
                                QScrollArea, QVBoxLayout, QWidget)
 
+from ... import device
 from ...core import i18n
 from ...core.contracts import Accent, SmartError
 from ...storage.disk import human_size
 from ...storage.profiles import ProfileError
+from ...ui import adaptive
 from ...ui.theme.manager import ThemedMixin, current_tokens
 from ...ui.theme.tokens import resolve
 from ...ui.widgets import Lockup, SquishyButton
@@ -45,7 +50,8 @@ def _card(title_key: Optional[str] = None) -> tuple:
     frame = QFrame()
     frame.setProperty("role", "card")
     lay = QVBoxLayout(frame)
-    lay.setContentsMargins(18, 16, 18, 16)
+    side = adaptive.margin(18, 12)
+    lay.setContentsMargins(side, 16, side, 16)
     lay.setSpacing(10)
     if title_key:
         head = QLabel(i18n.t(title_key))
@@ -165,23 +171,32 @@ class SettingsSimplePage(ThemedMixin, QWidget):
         body = QWidget()
         col = QVBoxLayout(body)
         col.setSpacing(16)
+        if adaptive.is_phone():                                       # sayfa çerçevesinin kenar boşluğu yeter
+            col.setContentsMargins(0, 4, 0, 4)
         scroll.setWidget(body)
         root.addWidget(scroll)
 
         title = QHBoxLayout()
-        before = QLabel(i18n.t(K.TITLE_BEFORE))
-        before.setProperty("role", "title")
-        after = QLabel(i18n.t(K.TITLE_AFTER))
-        after.setProperty("role", "title")
-        title.addWidget(before)
-        title.addWidget(Lockup(34))
-        title.addWidget(after)
+        if device.legend_allowed():                                   # "Nasıl bir KADRAJ istersin?" + mod kartları
+            before = QLabel(i18n.t(K.TITLE_BEFORE))
+            before.setProperty("role", "title")
+            after = QLabel(i18n.t(K.TITLE_AFTER))
+            after.setProperty("role", "title")
+            title.addWidget(before)
+            title.addWidget(Lockup(34))
+            title.addWidget(after)
+        else:                                                         # telefon: seçilecek mod yok, yalnız imza
+            title.addWidget(Lockup(26))
         title.addStretch(1)
         col.addLayout(title)
 
-        col.addWidget(self._mode_card())
+        mode = self._mode_card()
+        mode.setVisible(device.legend_allowed())
+        col.addWidget(mode)
         col.addWidget(self._vault_card())
-        col.addWidget(self._local_card())
+        local = self._local_card()
+        local.setVisible(not device.is_android())                     # Android'de yerel çalıştırıcı yok
+        col.addWidget(local)
         col.addWidget(self._folder_card())
         col.addWidget(self._view_card())
         col.addWidget(self._profile_card())
@@ -222,7 +237,7 @@ class SettingsSimplePage(ThemedMixin, QWidget):
         self.vault_reset = SquishyButton("", variant="ghost")             # "Parolamı unuttum" / "Kasayı sıfırla"
         self.vault_reset.setVisible(False)
         self.vault_reset.clicked.connect(self._on_vault_reset)
-        action_row = QHBoxLayout()
+        action_row = adaptive.hbox()
         action_row.addWidget(self.vault_action)
         action_row.addWidget(self.vault_reset)
         action_row.addStretch(1)
@@ -231,7 +246,7 @@ class SettingsSimplePage(ThemedMixin, QWidget):
         lay.addLayout(self.key_box)
         self.key_result = KeyTestResult(self.service, self.ctx)           # "Bağlantıyı test et" sonucu: sade Türkçe + adımlar
         lay.addWidget(self.key_result)
-        footer = QHBoxLayout()
+        footer = adaptive.hbox()
         footer.addStretch(1)
         test_all = SquishyButton(i18n.t(K.BTN_TEST_ALL), variant="secondary")
         test_all.clicked.connect(lambda: self.service.test_all(background=True))
@@ -247,16 +262,23 @@ class SettingsSimplePage(ThemedMixin, QWidget):
 
     def _folder_card(self) -> QFrame:
         frame, lay = _card(K.FOLDER_TITLE)
-        row = QHBoxLayout()
+        row = adaptive.hbox()
         self.folder_path = QLabel("")
         self.folder_path.setFont(_mono())
         self.folder_path.setProperty("role", "pill")
         self.folder_path.setWordWrap(True)
         pick = SquishyButton(i18n.t(K.BTN_PICK_FOLDER), variant="secondary")
         pick.clicked.connect(self._pick_folder)
+        self.folder_pick = pick
         row.addWidget(self.folder_path, 1)
         row.addWidget(pick)
         lay.addLayout(row)
+        if device.is_android():                    # klasör uygulamanın alanında sabit; dışarı almak için Paylaş (M12, M20)
+            pick.hide()
+            note = QLabel(i18n.t("files.android_folder"))
+            note.setProperty("role", "hint")
+            note.setWordWrap(True)
+            lay.addWidget(note)
         self.disk_bar = QProgressBar()
         self.disk_bar.setRange(0, 100)
         self.disk_bar.setTextVisible(False)
@@ -285,7 +307,7 @@ class SettingsSimplePage(ThemedMixin, QWidget):
 
     def _profile_card(self) -> QFrame:
         frame, lay = _card(K.PROFILE_TITLE)
-        row = QHBoxLayout()
+        row = adaptive.hbox()
         self.profile_combo = QComboBox()
         switch = SquishyButton(i18n.t(K.BTN_SWITCH), variant="secondary")
         switch.clicked.connect(self._switch_profile)
@@ -299,7 +321,7 @@ class SettingsSimplePage(ThemedMixin, QWidget):
 
     def _tools_card(self) -> QFrame:
         frame, lay = _card(K.TOOLS_TITLE)
-        row = QHBoxLayout()
+        row = adaptive.hbox()
         self.ytdlp_label = QLabel("")
         self.ytdlp_update = SquishyButton(i18n.t(K.UPDATE_NOW), variant="secondary")
         self.ytdlp_update.clicked.connect(self._update_ytdlp)
@@ -313,6 +335,9 @@ class SettingsSimplePage(ThemedMixin, QWidget):
         lay.addWidget(self.ffmpeg_label)
         self.deno_label = QLabel("")
         lay.addWidget(self.deno_label)
+        if adaptive.is_mobile():                                      # sürüm + kaynak dar ekranda alt satıra
+            for label in (self.ytdlp_label, self.ffmpeg_label, self.deno_label):
+                label.setWordWrap(True)
         self.cb_auto_update = QCheckBox(i18n.t(K.AUTO_UPDATE))
         self.cb_auto_update.setChecked(self.service.auto_update())
         self.cb_auto_update.toggled.connect(self.service.set_auto_update)
@@ -389,14 +414,15 @@ class SettingsSimplePage(ThemedMixin, QWidget):
     def _key_row(self, row: KeyRow) -> QFrame:
         tk = current_tokens()
         frame = QFrame()
-        hl = QHBoxLayout(frame)
+        hl = adaptive.hbox(frame)
         hl.setContentsMargins(0, 4, 0, 4)
+        head = QHBoxLayout() if adaptive.is_mobile() else hl          # mobilde simge + ad tek öğe (sarılınca bir satır)
         accent = tk.accent(_KIND_ACCENT.get(row.kind, Accent.NEUTRAL))
         avatar = QLabel(initials(row.name))
         avatar.setFixedSize(38, 38)
         avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
         avatar.setStyleSheet(f"background:{accent.tone}; color:{accent.ink}; border-radius:19px; font-weight:600;")
-        hl.addWidget(avatar)
+        head.addWidget(avatar)
         names = QVBoxLayout()
         name = QLabel(row.name)
         name.setProperty("role", "h2")
@@ -404,7 +430,11 @@ class SettingsSimplePage(ThemedMixin, QWidget):
         usage.setProperty("role", "muted")
         names.addWidget(name)
         names.addWidget(usage)
-        hl.addLayout(names, 1)
+        head.addLayout(names, 1)
+        if head is not hl:
+            name.setWordWrap(True)
+            usage.setWordWrap(True)
+            hl.addLayout(head, 1)
         pill = QLabel(self._reveal_text(row))
         pill.setFont(_mono())
         pill.setProperty("role", "pill")
@@ -449,7 +479,7 @@ class SettingsSimplePage(ThemedMixin, QWidget):
     def _local_row(self, rt: LocalRuntime) -> QFrame:
         tk = current_tokens()
         frame = QFrame()
-        hl = QHBoxLayout(frame)
+        hl = adaptive.hbox(frame)
         hl.setContentsMargins(0, 4, 0, 4)
         names = QVBoxLayout()
         name = QLabel(rt.name)
@@ -480,7 +510,7 @@ class SettingsSimplePage(ThemedMixin, QWidget):
         return frame
 
     def _refresh_folder(self) -> None:
-        self.folder_path.setText(self.service.project_root() or str(_home()))
+        self.folder_path.setText(adaptive.breakable(self.service.project_root() or str(_home())))
         info = self.service.folder_info()
         if info is None:
             self.disk_bar.setValue(0)

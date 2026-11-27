@@ -3,14 +3,16 @@
 **onay vermeden bir sonrakine geçilmez**; hiçbir üretim kendiliğinden başlamaz."""
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget, QPlainTextEdit, QProgressBar,
-                               QPushButton, QScrollArea, QSpinBox, QStackedWidget, QVBoxLayout, QWidget)
+                               QPushButton, QScrollArea, QSpinBox, QVBoxLayout, QWidget)
 
 from ...ai_engine.pipeline.machine import RESOLUTIONS, STAGE_ORDER, Stage
 from ...core import i18n
 from ...core.contracts import Topics
+from ...ui import adaptive, files
 from ...ui.widgets.help_bubble import HelpBubble
 from ...ui.widgets.squishy_button import SquishyButton
 from .page_base import SeriesPageBase
@@ -21,7 +23,8 @@ def _card() -> tuple:
     f = QFrame()
     f.setProperty("role", "card")
     lay = QVBoxLayout(f)
-    lay.setContentsMargins(18, 14, 18, 14)
+    side = adaptive.margin(18, 12)
+    lay.setContentsMargins(side, 14, side, 14)
     lay.setSpacing(8)
     return f, lay
 
@@ -74,7 +77,7 @@ class SeriesSimplePage(SeriesPageBase):
         rl.addWidget(_hint(i18n.t("series.resume.sub")))
         rl.addWidget(self.resume_btn)
         lay.addWidget(self.resume_card)
-        self.stack = QStackedWidget()
+        self.stack = adaptive.stack()                                   # mobilde gizli paneller ekranı genişletmez
         self.panels: Dict[Stage, QWidget] = {}
         for st, builder in ((Stage.IDEA, self._p_idea), (Stage.SCREENPLAY, self._p_screenplay), (Stage.FORMAT, self._p_format),
                             (Stage.BIBLE, self._p_bible), (Stage.STORYBOARD, self._p_storyboard), (Stage.PLAN, self._p_plan),
@@ -122,7 +125,7 @@ class SeriesSimplePage(SeriesPageBase):
         l.addWidget(_hint(i18n.t("series.script.sub")))
         self.script_edit = QPlainTextEdit()
         self.script_edit.setMinimumHeight(220)
-        row = QHBoxLayout()
+        row = adaptive.hbox()
         self.write_btn = SquishyButton(i18n.t("series.script.write"), variant="secondary")
         self.export_btn = QPushButton(i18n.t("series.script.export"))
         self.script_ok = SquishyButton(i18n.t("series.approve_next"), variant="primary", accent="pink")
@@ -130,15 +133,46 @@ class SeriesSimplePage(SeriesPageBase):
             row.addWidget(w)
         l.addWidget(self.script_edit)
         l.addLayout(row)
+        # dışa aktarınca ne nereye kaydedildi; Android'de PDF için Aç / Paylaş / Galeriye kaydet (M20)
+        self.export_note = _hint("")
+        self.export_note.hide()
+        l.addWidget(self.export_note)
+        self.export_path: Optional[str] = None
+        self.export_btns = files.mobile_buttons(lambda: self.export_path, self._set_export_note, open_button=True)
+        if self.export_btns:
+            export_row = adaptive.hbox()
+            for b in self.export_btns:
+                b.hide()
+                export_row.addWidget(b)
+            export_row.addStretch(1)
+            l.addLayout(export_row)
         self.write_btn.clicked.connect(self._write_script)
-        self.export_btn.clicked.connect(lambda: (self._save_script(), self.svc.export_script()))
+        self.export_btn.clicked.connect(self.export_script)
         self.script_ok.clicked.connect(lambda: (self._save_script(), self.svc.approve() and self.svc.advance()))
         return card
+
+    def _set_export_note(self, text: str) -> None:
+        self.export_note.setText(text)
+        self.export_note.setVisible(bool(text))
+
+    def export_script(self) -> Dict[str, str]:
+        """Senaryoyu ``.fountain`` (+ ``.pdf``) olarak kaydeder ve nereye kaydedildiğini söyler."""
+        self._save_script()
+        try:
+            out = self.svc.export_script()
+        except Exception as exc:  # noqa: BLE001 — PDF yazılamazsa sade kart (sessiz kalmasın)
+            self.ctx.report_error(exc, {"source": "series"})
+            return {}
+        self.export_path = out.get("pdf") or out.get("fountain")
+        self._set_export_note(i18n.t("series.script.exported", names=", ".join(Path(p).name for p in out.values())))
+        for b in self.export_btns:
+            b.show()
+        return out
 
     def _p_format(self) -> QWidget:
         card, l = _card()
         l.addWidget(_h2(i18n.t("series.format.title")))
-        row = QHBoxLayout()
+        row = adaptive.hbox()
         self.kind_box = QComboBox()
         for k in ("film", "dizi"):
             self.kind_box.addItem(i18n.t(f"series.kind.{k}"), k)
@@ -170,7 +204,7 @@ class SeriesSimplePage(SeriesPageBase):
         l.addWidget(_hint(i18n.t("series.chars.sub")))
         self.char_list = QListWidget()
         self.char_list.setMaximumHeight(130)
-        row = QHBoxLayout()
+        row = adaptive.hbox()
         self.char_name, self.char_desc, self.char_voice = QLineEdit(), QLineEdit(), QLineEdit()
         self.char_name.setPlaceholderText(i18n.t("series.chars.name"))
         self.char_desc.setPlaceholderText(i18n.t("series.chars.desc"))
@@ -201,7 +235,7 @@ class SeriesSimplePage(SeriesPageBase):
         self.board.setMinimumHeight(260)
         self.board_ok = SquishyButton(i18n.t("series.approve_next"), variant="primary", accent="pink")
         self.approve_all = QPushButton(i18n.t("series.board.approve_all"))
-        row = QHBoxLayout()
+        row = adaptive.hbox()
         row.addWidget(self.keyframes_btn)
         row.addWidget(self.approve_all)
         l.addLayout(row)
@@ -223,7 +257,7 @@ class SeriesSimplePage(SeriesPageBase):
         self.plan_line = QLabel("")
         self.plan_line.setProperty("role", "mono")
         self.plan_detail = _hint()
-        row = QHBoxLayout()
+        row = adaptive.hbox()
         self.dub_edit = QLineEdit()
         self.dub_edit.setPlaceholderText(i18n.t("series.plan.dub"))
         self.dub_btn = QPushButton(i18n.t("series.plan.dub_go"))
@@ -247,7 +281,7 @@ class SeriesSimplePage(SeriesPageBase):
         self.prod_bar.setRange(0, 100)
         self.prod_list = QListWidget()
         self.prod_list.setMaximumHeight(200)
-        row = QHBoxLayout()
+        row = adaptive.hbox()
         self.prod_btn = SquishyButton(i18n.t("series.prod.start"), variant="primary", accent="pink")
         self.prod_stop = QPushButton(i18n.t("series.prod.stop"))
         row.addWidget(self.prod_btn)
