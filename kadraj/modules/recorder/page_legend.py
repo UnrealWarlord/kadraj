@@ -16,11 +16,12 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDoubleS
 
 from ...core import i18n
 from ...core.contracts import Job
+from ...ui import adaptive
 from ...ui.widgets.squishy_button import SquishyButton
 from .devices import SAMPLE_RATES
 from .dsp import FLOOR_DB, LevelAnalysis
 from .location import RecordingLocationBar, RecordingResultCard
-from .page_base import RecorderPageBase
+from .page_base import RecorderPageBase, transcribe_available
 from .teleprompter import MAX_FONT, MAX_WPM, MIN_FONT, MIN_WPM, Prompter
 from .widgets import (BigRecordButton, GRBar, PrompterView, StatusLamp, StereoMeter, WaveformView, format_timecode)
 
@@ -82,7 +83,7 @@ class RecorderLegendPage(RecorderPageBase):
     def _build_header(self) -> QFrame:
         f = QFrame()
         f.setProperty("role", "panel")
-        lay = QHBoxLayout(f)
+        lay = adaptive.hbox(f)                                          # tablet dikeyde alt satıra geçer
         lay.setContentsMargins(12, 8, 12, 8)
         lay.setSpacing(10)
         self.header_label = QLabel("")
@@ -298,7 +299,8 @@ class RecorderLegendPage(RecorderPageBase):
         lay.addWidget(self.table, 1)
         bar = QHBoxLayout()
         bar.setSpacing(8)
-        bar.addWidget(QLabel(i18n.t("recorder.legend.language")))
+        lang_label = QLabel(i18n.t("recorder.legend.language"))
+        bar.addWidget(lang_label)
         self.lang_combo = QComboBox()
         for code, name in LANGUAGES:
             self.lang_combo.addItem(name, code)
@@ -312,6 +314,9 @@ class RecorderLegendPage(RecorderPageBase):
         self.transcribe_btn = SquishyButton(i18n.t("recorder.transcribe.button_short"), variant="secondary", icon="book")
         self.transcribe_btn.clicked.connect(lambda: self.request_transcribe())
         bar.addWidget(self.transcribe_btn)
+        if not transcribe_available():                                  # Android: yazıya çevirme yok
+            for w in (lang_label, self.lang_combo, self.model_combo, self.transcribe_btn):
+                w.setVisible(False)
         bar.addSpacing(16)
         bar.addWidget(QLabel(i18n.t("recorder.legend.target_lufs")))
         self.target_spin = QDoubleSpinBox()

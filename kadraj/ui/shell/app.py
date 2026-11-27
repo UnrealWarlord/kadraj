@@ -108,8 +108,11 @@ class Launcher:
 
     def show_main(self) -> MainWindow:
         self.window = MainWindow(self.ctx, self.theme)
-        fit_window(self.window, 1320, 860, min_width=920, min_height=620)
-        self.window.show()
+        if device.is_mobile():                 # telefon/tablet: pencere ekranın tamamı (çalışma alanı)
+            self.window.showMaximized()
+        else:
+            fit_window(self.window, 1320, 860, min_width=920, min_height=620)
+            self.window.show()
         if getattr(self, "_wizard_api", "") == "how":
             self.ctx.bus.emit("ui.navigate", {"module": "settings"})
         return self.window

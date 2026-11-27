@@ -8,6 +8,7 @@ from typing import Any, Optional
 from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget)
 
 from ...core import i18n
+from ...ui import adaptive
 from ...ui.widgets.help_bubble import HelpBubble
 from ...ui.widgets.squishy_button import SquishyButton
 from .page_base import PhotoPageBase
@@ -20,7 +21,8 @@ def _card() -> tuple:
     f = QFrame()
     f.setProperty("role", "card")
     lay = QVBoxLayout(f)
-    lay.setContentsMargins(18, 16, 18, 16)
+    side = adaptive.margin(18, 12)
+    lay.setContentsMargins(side, 16, side, 16)
     lay.setSpacing(10)
     return f, lay
 
@@ -56,7 +58,7 @@ class PhotoSimplePage(PhotoPageBase):
         self.idea.setPlaceholderText(i18n.t("photo.simple.example"))
         self.idea.setFixedHeight(84)
         cl.addWidget(self.idea)
-        drop = QHBoxLayout()
+        drop = adaptive.hbox()                                          # telefonda düğme ve ipucu alt alta
         self.image_btn = SquishyButton(i18n.t("photo.simple.from_image"), variant="secondary", icon="image")
         self.image_hint = QLabel(i18n.t("photo.simple.drop_hint"))
         self.image_hint.setProperty("role", "hint")
@@ -64,7 +66,7 @@ class PhotoSimplePage(PhotoPageBase):
         drop.addWidget(self.image_btn)
         drop.addWidget(self.image_hint, 1)
         cl.addLayout(drop)
-        go = QHBoxLayout()
+        go = adaptive.hbox()
         self.go_btn = SquishyButton(i18n.t("photo.simple.go"), variant="primary", icon="check", accent="butter")
         go.addWidget(self.go_btn)
         go.addWidget(self.share_label)
@@ -77,7 +79,7 @@ class PhotoSimplePage(PhotoPageBase):
         self.question = QLabel("")
         self.question.setWordWrap(True)
         self.question.setProperty("role", "h2")
-        row = QHBoxLayout()
+        row = adaptive.hbox()
         self.answer = QLineEdit()
         self.answer.setPlaceholderText(i18n.t("photo.simple.answer"))
         self.send_btn = SquishyButton(i18n.t("photo.simple.send"), variant="primary")
@@ -94,7 +96,9 @@ class PhotoSimplePage(PhotoPageBase):
         self.copy_text.setReadOnly(True)
         self.copy_text.setFixedHeight(90)
         self.copy_btn = SquishyButton(i18n.t("photo.copy"), variant="secondary")
-        cpl.addWidget(QLabel(i18n.t("photo.simple.copy_hint")))
+        copy_hint = QLabel(i18n.t("photo.simple.copy_hint"))
+        copy_hint.setWordWrap(adaptive.is_mobile())
+        cpl.addWidget(copy_hint)
         cpl.addWidget(self.copy_text)
         cpl.addWidget(self.copy_btn)
         lay.addWidget(self.copy_card)
@@ -103,19 +107,24 @@ class PhotoSimplePage(PhotoPageBase):
         gt = QLabel(i18n.t("photo.simple.gallery"))
         gt.setProperty("role", "h2")
         gl.addWidget(gt)
-        gl.addWidget(QLabel(i18n.t("photo.simple.gallery_hint")))
+        gallery_hint = QLabel(i18n.t("photo.simple.gallery_hint"))
+        gallery_hint.setWordWrap(adaptive.is_mobile())
+        gl.addWidget(gallery_hint)
         self.gallery = VariationGrid(simple=True, columns=2)
         self.bind_grid(self.gallery)
         gl.addWidget(self.gallery)
         self.tool_label = QLabel("")
         self.tool_label.setProperty("role", "hint")
+        self.tool_label.setWordWrap(adaptive.is_mobile())
         gl.addWidget(self.tool_label)
+        gl.addLayout(self.tool_file_row(self.tool_label))
         lay.addWidget(self.gallery_card)
         lay.addStretch(1)
         self.connect_service()
         self.svc.chatChanged.connect(self._on_chat)
         self.svc.specChanged.connect(self._on_spec)
-        self.svc.toolDone.connect(lambda tool, path: self.tool_label.setText(i18n.t("photo.tool_done", path=path)))
+        self.svc.toolDone.connect(lambda tool, path: (self.tool_label.setText(
+            i18n.t("photo.tool_done", path=adaptive.breakable(str(path)))), self.remember_tool_output(str(path))))
         self.go_btn.clicked.connect(self.dream)
         self.send_btn.clicked.connect(self.send_answer)
         self.answer.returnPressed.connect(self.send_answer)

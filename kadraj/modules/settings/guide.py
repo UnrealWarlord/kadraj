@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (QApplication, QDialog, QHBoxLayout, QLabel, QPush
                                QVBoxLayout, QWidget)
 
 from ...core import i18n
+from ...ui import adaptive
 from ...ui.theme.manager import current_tokens
 from ...ui.widgets import SquishyButton
 from .strings import K
@@ -151,7 +152,7 @@ class GuideView(QWidget):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(10)
 
-        self._tabs_row = QHBoxLayout()
+        self._tabs_row = adaptive.hbox()                              # telefonda servis düğmeleri alt satıra geçer
         self._tab_buttons = []
         for pid, name in self._providers:
             btn = QPushButton(name)
@@ -173,7 +174,7 @@ class GuideView(QWidget):
         self.text.setWordWrap(True)
         lay.addWidget(self.text)
 
-        nav = QHBoxLayout()
+        nav = adaptive.hbox()
         self.prev = SquishyButton(i18n.t(K.GUIDE_PREV), variant="secondary")
         self.next = SquishyButton(i18n.t(K.GUIDE_NEXT), variant="primary")
         self.copy = SquishyButton(i18n.t(K.GUIDE_COPY_HOST), variant="ghost")
@@ -241,6 +242,8 @@ class GuideDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle(i18n.t(K.GUIDE_TITLE))
         self.setModal(True)
+        if adaptive.is_mobile():                                      # ekrandan taşmasın
+            adaptive.fit_dialog(self, 640, 620)
         self.view = GuideView(providers, self)
         lay = QVBoxLayout(self)
         lay.addWidget(self.view)

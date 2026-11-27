@@ -10,6 +10,7 @@ import shutil
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Tuple
 
+from ... import device
 from ...core import components
 
 
@@ -74,7 +75,8 @@ def detect_tools() -> Dict[str, ToolStatus]:
 
 def summary_line(tools: Dict[str, ToolStatus], version: str) -> str:
     parts = [f"sürüm {version}"]
-    for key in ("yt-dlp", "ffmpeg", "ollama"):
+    keys = ("yt-dlp", "ffmpeg") if device.is_android() else ("yt-dlp", "ffmpeg", "ollama")   # Android'de yerel AI yok
+    for key in keys:
         t = tools.get(key)
         if t:
             parts.append(f"{t.label} {'✓' if t.ok else '–'}")

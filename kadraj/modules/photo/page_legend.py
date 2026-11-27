@@ -286,6 +286,7 @@ class PhotoLegendPage(PhotoPageBase):
         self.tool_status = QLabel("")
         self.tool_status.setProperty("role", "hint")
         tl.addWidget(self.tool_status)
+        tl.addLayout(self.tool_file_row(self.tool_status))
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -435,3 +436,4 @@ class PhotoLegendPage(PhotoPageBase):
 
     def _on_tool(self, tool: str, path: str) -> None:
         self.tool_status.setText(i18n.t("photo.tool_done", path=path))
+        self.remember_tool_output(path)

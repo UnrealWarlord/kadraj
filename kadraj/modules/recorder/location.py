@@ -3,7 +3,8 @@
 * ``RecordingLocationBar``: "Kayıt yeri: <tam yol>" (seçilebilir), "Klasörü aç", "Değiştir". Yol her zaman görünür.
 * ``RecordingResultCard``: kayıt bitince dosya adı, süre, tam yol; "Oynat" ve "Klasörde göster".
 
-Dosya eylemleri ``QDesktopServices`` ile yapılır. Başarısızlık bu widget'ların kendi not satırında gösterilir
+Dosya eylemleri ``QDesktopServices`` ile yapılır; Android'de "Oynat" köprüyle açılır, "Klasörü aç", "Değiştir" ve
+"Klasörde göster" yerine "Paylaş" ve "Galeriye kaydet" gelir (``kadraj.ui.files``, M20). Başarısızlık bu widget'ların kendi not satırında gösterilir
 (sayfa ya da servis durumu değiştirilmez). "Değiştir" kayıt yerini Ayarlar'daki proje klasörü seçimine bırakır:
 sayfa ``changeRequested`` ile Ayarlar'a geçer.
 """
@@ -14,9 +15,11 @@ from typing import Optional
 
 from PySide6.QtCore import QUrl, Qt, Signal
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QLabel, QVBoxLayout, QWidget
 
+from ... import device
 from ...core import i18n
+from ...ui import adaptive, files
 from ...ui.widgets.squishy_button import SquishyButton
 from .takes import Take
 
@@ -30,8 +33,10 @@ def open_folder(folder: Path) -> bool:
     return bool(QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder))))
 
 
-def open_file(path: Path) -> bool:
+def open_file(path: Path, note: Optional[files.Note] = None) -> bool:
     """Dosyayı varsayılan oynatıcıyla açar. Dosya yoksa ya da açılamazsa ``False``."""
+    if device.is_android():                                    # köprüyle uygun uygulama; nedeni note'a (M20)
+        return files.open_path(path, note)
     if not path.is_file():
         return False
     return bool(QDesktopServices.openUrl(QUrl.fromLocalFile(str(path))))
@@ -74,8 +79,7 @@ class RecordingLocationBar(QFrame):
         self.label.setWordWrap(True)
         self.label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         lay.addWidget(self.label)
-        row = QHBoxLayout()
-        row.setSpacing(8)
+        row = adaptive.hbox(spacing=8)
         self.open_btn = SquishyButton(i18n.t("recorder.location.open"), variant="secondary")
         self.change_btn = SquishyButton(i18n.t("recorder.location.change"), variant="ghost")
         self.change_btn.setToolTip(i18n.t("recorder.location.change_hint"))
@@ -88,6 +92,10 @@ class RecordingLocationBar(QFrame):
         self.hint.setProperty("role", "hint")
         self.hint.setWordWrap(True)
         lay.addWidget(self.hint)
+        if not files.can_reveal():                 # Android: klasör açılamaz, yer değiştirilemez (M12, M20)
+            self.open_btn.hide()
+            self.change_btn.hide()
+            self.hint.setText(i18n.t("files.android_folder"))
         self.note = _note()
         lay.addWidget(self.note)
         self.open_btn.clicked.connect(self._open)
@@ -151,12 +159,16 @@ class RecordingResultCard(QFrame):
         self.where.setWordWrap(True)
         self.where.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         lay.addWidget(self.where)
-        row = QHBoxLayout()
-        row.setSpacing(8)
+        row = adaptive.hbox(spacing=8)
         self.play_btn = SquishyButton(i18n.t("recorder.result.play"), variant="primary", accent="lavender")
         self.show_btn = SquishyButton(i18n.t("recorder.result.show"), variant="secondary")
         row.addWidget(self.play_btn)
         row.addWidget(self.show_btn)
+        self.show_btn.setVisible(files.can_reveal())
+        self.mobile_btns = files.mobile_buttons(
+            lambda: str(self._take.path) if self._take is not None else None, self._set_note)
+        for b in self.mobile_btns:                 # Android: Paylaş, Galeriye kaydet
+            row.addWidget(b)
         row.addStretch(1)
         lay.addLayout(row)
         self.note = _note()
@@ -189,7 +201,7 @@ class RecordingResultCard(QFrame):
     def _play(self) -> None:
         if self._take is None:
             return
-        if not open_file(self._take.path):
+        if not open_file(self._take.path, self._set_note) and not device.is_android():
             self._set_note(i18n.t("recorder.result.play_failed"))
 
     def _show(self) -> None:

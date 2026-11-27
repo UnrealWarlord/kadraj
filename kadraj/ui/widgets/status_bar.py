@@ -120,6 +120,31 @@ class AutosaveIndicator(ThemedMixin, QWidget):
         p.end()
 
 
+class _ElidedLabel(QLabel):
+    """Tek satırlık ileti: sığmazsa "…" ile kısalır (dar ekranda yarım kesilmiş kelime görünmez).
+    Genişlik istemez; şeritte kalan yeri kullanır. Tam metin ``full_text()``'tedir."""
+
+    def __init__(self) -> None:
+        super().__init__("")
+        self._full = ""
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+
+    def set_full_text(self, text: str) -> None:
+        self._full = text
+        self.setToolTip(text)
+        self._fit()
+
+    def full_text(self) -> str:
+        return self._full
+
+    def resizeEvent(self, e) -> None:
+        super().resizeEvent(e)
+        self._fit()
+
+    def _fit(self) -> None:
+        self.setText(self.fontMetrics().elidedText(self._full, Qt.TextElideMode.ElideRight, max(self.width(), 0)))
+
+
 class StatusBar(QFrame):
     """Alt durum şeridi."""
 
@@ -129,7 +154,7 @@ class StatusBar(QFrame):
         lay = QHBoxLayout(self)
         lay.setContentsMargins(14, 4, 14, 4)
         lay.setSpacing(16)
-        self._message = QLabel("")
+        self._message = _ElidedLabel()
         self._message.setProperty("role", "muted")
         self._jobs = QLabel("")
         self._jobs.setProperty("role", "muted")
@@ -146,17 +171,17 @@ class StatusBar(QFrame):
         lay.addWidget(self._ver)
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
-        self._timer.timeout.connect(lambda: self._message.setText(""))
+        self._timer.timeout.connect(lambda: self._message.set_full_text(""))
         self.set_compact(True)
 
     # -- API --------------------------------------------------------------
     def set_message(self, text: str, timeout_ms: int = 4000) -> None:
-        self._message.setText(text)
+        self._message.set_full_text(text)
         if timeout_ms > 0:
             self._timer.start(timeout_ms)
 
     def message(self) -> str:
-        return self._message.text()
+        return self._message.full_text()
 
     def set_jobs(self, active: int, total: int) -> None:
         self._jobs.setText(i18n.t("status.jobs", active=active, total=total) if total else "")

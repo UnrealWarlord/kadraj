@@ -4,7 +4,8 @@
   ``sys.getandroidapilevel`` sunar; python-for-android ayrıca ``ANDROID_ARGUMENT`` / ``ANDROID_PRIVATE`` ortam
   değişkenlerini koyar.)
 * ``form_factor()`` — ``desktop`` | ``phone`` | ``tablet``. Android'de ekranın **en küçük genişliği** 600 dp ve
-  üstüyse tablet (Android'in ``sw600dp`` eşiği). Telefonda yalnız Basit Mod; tablette masaüstündeki gibi iki mod.
+  üstüyse tablet (Android'in ``sw600dp`` eşiği). Telefonda yalnız Basit Mod; tablette masaüstündeki gibi iki mod
+  (``legend_allowed()``). ``is_mobile()``: telefon ya da tablet.
 * ``android_private_dir()`` — uygulamanın özel (iç) dosya klasörü; ``~/.kadraj`` karşılığı bunun altındadır.
 * ``native_library_dir()`` — APK'nın yerel kütüphane klasörü (``nativeLibraryDir``). Android 10+ yazılabilir
   klasörden ikili çalıştırmaya izin vermez (W^X); FFmpeg gibi araçlar ``lib<ad>.so`` adıyla bu klasöre gömülür.
@@ -42,7 +43,20 @@ def is_android() -> bool:
 
 
 def android_api_level() -> int:
-    """Android API düzeyi (ör. 34). Android değilse ya da bilinmiyorsa 0."""
+    """Cihazın Android API düzeyi (ör. 34). Android değilse ya da bilinmiyorsa 0.
+
+    Python 3.13+ ``platform.android_ver().api_level`` cihazın gerçek düzeyini verir. ``sys.getandroidapilevel()``
+    ise Python'un derlendiği (en düşük) düzeydir; yalnız yedek olarak kullanılır.
+    """
+    if is_android():
+        try:
+            import platform
+            ver = getattr(platform, "android_ver", None)
+            level = int(ver().api_level) if ver is not None else 0
+        except Exception:  # noqa: BLE001
+            level = 0
+        if level > 0:
+            return level
     get = getattr(sys, "getandroidapilevel", None)
     if get is None:
         return 0
@@ -94,6 +108,16 @@ def is_phone() -> bool:
 
 def is_tablet() -> bool:
     return form_factor() == TABLET
+
+
+def is_mobile() -> bool:
+    """Telefon ya da tablet (dokunmatik, tam ekran pencere). ``KADRAJ_FORM_FACTOR`` ile masaüstünde de denenir."""
+    return form_factor() != DESKTOP
+
+
+def legend_allowed() -> bool:
+    """Legend Mod bu cihazda açılabilir mi? Telefonda yalnız Basit Mod (M1); tablette ve masaüstünde iki mod (M2)."""
+    return form_factor() != PHONE
 
 
 def android_private_dir() -> Optional[Path]:

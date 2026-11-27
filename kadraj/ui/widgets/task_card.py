@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Optional
 
 from PySide6.QtCore import QPointF, QPropertyAnimation, QRectF, QSize, Qt, Property, QEasingCurve
-from PySide6.QtGui import QColor, QFontMetrics, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QColor, QFontMetrics, QPainter, QPainterPath, QPen, QTextLayout
 from PySide6.QtWidgets import QAbstractButton, QSizePolicy, QWidget
 
 from ...core import i18n
@@ -160,23 +160,56 @@ class TaskCard(ThemedMixin, QAbstractButton):
         p.setFont(dfont)
         p.setPen(QColor(tk.text2 if not tk.high_contrast else tk.text))
         dr = QRectF(rect.left() + pad, ty + 6, rect.width() - 2 * pad, rect.bottom() - ty - pad * 0.5)
-        p.drawText(dr, int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop | Qt.TextFlag.TextWordWrap),
-                   self._desc)
+        flags = int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop | Qt.TextFlag.TextWordWrap)
+        badges_w, badge_top = self._badge_area(rect, pad)
+        if badges_w and self.desc_hits_badges(dfont, dr, dr.right() - badges_w - 8, badge_top):
+            dr.setRight(dr.right() - badges_w - 8)               # dar kartta açıklama rozetin altına girmesin
+        p.drawText(dr, flags, self._desc)
         self._paint_badges(p, rect, acc, pad)
         if self.hasFocus():
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.setPen(QPen(QColor(tk.text if tk.high_contrast else tk.primary_deep), 3))
             p.drawRoundedRect(rect.adjusted(-2, -2, 2, 2), radius + 2, radius + 2)
 
-    def _paint_badges(self, p: QPainter, rect: QRectF, acc, pad: float) -> None:
-        tk = self.tk
-        bfont = fonts.qfont(tk.font_ui, tk.ui_px * 0.78, weight=800)
-        bfm = QFontMetrics(bfont)
+    def desc_hits_badges(self, font, box: QRectF, badge_left: float, badge_top: float) -> bool:
+        """Açıklamanın (``box`` genişliğinde sarılınca) bir satırı rozet alanına giriyor mu?"""
+        layout = QTextLayout(self._desc, font)
+        layout.beginLayout()
+        y, hit = 0.0, False
+        while True:
+            line = layout.createLine()
+            if not line.isValid():
+                break
+            line.setLineWidth(box.width())
+            line.setPosition(QPointF(0, y))
+            if box.top() + y + line.height() > badge_top and box.left() + line.naturalTextWidth() > badge_left:
+                hit = True
+            y += line.height()
+        layout.endLayout()
+        return hit
+
+    def _badge_labels(self) -> list:
         labels = []
         if self._chip:
             labels.append(self._chip)
         if self._soon:
             labels.append(i18n.t("home.soon"))
+        return labels
+
+    def _badge_font(self):
+        return fonts.qfont(self.tk.font_ui, self.tk.ui_px * 0.78, weight=800)
+
+    def _badge_area(self, rect: QRectF, pad: float) -> tuple[float, float]:
+        """Rozetlerin toplam genişliği ve üst kenarı (rozet yoksa genişlik 0)."""
+        bfm = QFontMetrics(self._badge_font())
+        widths = [bfm.horizontalAdvance(label) + 18 for label in self._badge_labels()]
+        total = sum(widths) + 8 * max(len(widths) - 1, 0)
+        return float(total), rect.bottom() - pad - bfm.height() - 4
+
+    def _paint_badges(self, p: QPainter, rect: QRectF, acc, pad: float) -> None:
+        bfont = self._badge_font()
+        bfm = QFontMetrics(bfont)
+        labels = self._badge_labels()
         x = rect.right() - pad
         for label in labels:
             w = bfm.horizontalAdvance(label) + 18

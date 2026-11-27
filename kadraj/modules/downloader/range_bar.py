@@ -12,6 +12,7 @@ from PySide6.QtCore import QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QKeyEvent, QMouseEvent, QPainter, QPen
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
+from ...ui import adaptive
 from ...ui.theme.manager import ThemedMixin
 
 MIN_GAP = 1.0
@@ -24,6 +25,7 @@ class RangeBar(ThemedMixin, QWidget):
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
+        adaptive.direct_touch(self)                 # dokunmatik: sürükleme sayfayı kaydırmaz
         self._duration = 0.0
         self._start = 0.0
         self._end = 0.0

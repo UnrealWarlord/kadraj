@@ -1,7 +1,9 @@
 """Sistem izleyici (``SysmonAPI``; sözleşme: ``core.contracts`` §9).
 
 ``sample(path)`` → ``{"cpu", "ram_used", "ram_total", "gpu", "vram_used", "vram_total", "gpu_name", "disk_free",
-"disk_total", "api_ping"}``; olmayan değer ``None`` (arayüz "—" gösterir). psutil yoksa CPU/RAM/disk de ``None``.
+"disk_total", "api_ping"}``; olmayan değer ``None`` (arayüz "—" gösterir). psutil yoksa (Android paketi) CPU ``None``;
+disk standart kütüphaneyle (``shutil.disk_usage``), bellek Linux/Android'de ``/proc/meminfo``'dan okunur.
+``available_keys()``: bu cihazda ölçülebilen satırlar (Android'de işlemci ve ekran kartı yok, M21).
 
 GPU: ``pynvml`` (paket adı ``nvidia-ml-py``) isteğe bağlıdır; kurulu değilse, NVIDIA sürücüsü yoksa ya da başlatma
 başarısızsa **sessizce** ``None`` döner (bir kez denenir, sonuç önbelleğe alınır). Örnekleme hiçbir zaman ağa çıkmaz ve
@@ -9,12 +11,41 @@ istisna atmaz. ``api_ping`` son "Bağlantıyı Test Et" gecikmesidir (``record_p
 """
 from __future__ import annotations
 
+import shutil
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
+
+from .. import device
 
 _KEYS = ("cpu", "ram_used", "ram_total", "gpu", "vram_used", "vram_total", "gpu_name", "disk_free", "disk_total",
          "api_ping")
+#: Sistem panelinin satırları (``ui/shell/legend.SystemPanel``).
+PANEL_KEYS = ("cpu", "ram", "gpu", "vram", "disk", "ping")
+MEMINFO = Path("/proc/meminfo")
+
+
+def available_keys() -> Tuple[str, ...]:
+    """Bu cihazda ölçülebilen panel satırları. Android uygulamaları işlemci yükünü okuyamaz (``/proc/stat`` kapalı)
+    ve NVIDIA ekran kartı yoktur: orada yalnız bellek, disk ve API gecikmesi."""
+    if device.is_android():
+        return ("ram", "disk", "ping")
+    return PANEL_KEYS
+
+
+def meminfo(text: str) -> Optional[Tuple[int, int]]:
+    """``/proc/meminfo`` metninden (kullanılan, toplam) bayt; okunamazsa ``None``."""
+    values: Dict[str, int] = {}
+    for line in text.splitlines():
+        name, _, rest = line.partition(":")
+        parts = rest.split()
+        if parts and parts[0].isdigit():
+            values[name.strip()] = int(parts[0]) * (1024 if parts[1:2] == ["kB"] else 1)
+    total = values.get("MemTotal")
+    free = values.get("MemAvailable", values.get("MemFree"))
+    if not total or free is None:
+        return None
+    return max(0, total - free), total
 
 
 class SystemMonitor:
@@ -94,6 +125,18 @@ class SystemMonitor:
                 out["disk_free"], out["disk_total"] = int(du.free), int(du.total)
             except Exception:
                 pass
+        else:                                          # psutil yok (Android): standart kütüphane ve /proc
+            try:
+                du = shutil.disk_usage(path if path and Path(path).exists() else str(Path.home()))
+                out["disk_free"], out["disk_total"] = int(du.free), int(du.total)
+            except Exception:
+                pass
+            try:
+                ram = meminfo(MEMINFO.read_text(encoding="ascii", errors="replace"))
+            except Exception:
+                ram = None
+            if ram is not None:
+                out["ram_used"], out["ram_total"] = ram
         out.update(self._gpu())
         if self._ping is not None and time.monotonic() - self._ping_at <= self._ping_ttl:
             out["api_ping"] = self._ping

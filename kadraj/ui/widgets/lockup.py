@@ -48,6 +48,11 @@ class Lockup(ThemedMixin, QWidget):
         self._relayout()
         self.update()
 
+    def set_show_mark(self, show: bool) -> None:
+        self._show_mark = bool(show)
+        self._relayout()
+        self.update()
+
     @property
     def wordmark_px(self) -> int:
         return self._px

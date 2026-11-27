@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
+from ... import device
 from ...core import components, i18n
 from ...core.contracts import SmartAction, SmartError
 from .strings import K
@@ -58,7 +59,7 @@ def build(error_id: str, technical: str = "") -> SmartError:
     k = lambda part: getattr(K, f"ERR_{error_id}_{part}")      # noqa: E731
     steps = tuple(f"{i}. {t(k(f'STEP{i}'))}" for i in (1, 2, 3))
     actions: List[SmartAction] = []
-    if error_id != "FORMAT":
+    if error_id != "FORMAT" and not (error_id == "FFMPEG" and device.is_android()):   # Android: FFmpeg uygulamayla gelir
         actions.append(SmartAction("update_components", t(K.ERR_ACTION_UPDATE), "custom", {"topic": TOPIC_UPDATE}))
     actions.append(SmartAction("open_tools", t(K.ERR_ACTION_TOOLS), "open_settings", {"section": "tools"}))
     return SmartError(f"downloader.{error_id.lower()}", t(k("TITLE")), t(k("SUMMARY")), cause=t(k("CAUSE")),

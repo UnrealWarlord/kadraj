@@ -7,12 +7,14 @@ from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QDragEnterEvent, QDropEvent, QGuiApplication
-from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QFrame, QGridLayout,
+from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFrame, QGridLayout,
                                QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit, QProgressBar,
                                QPushButton, QSlider, QVBoxLayout, QWidget)
 
+from ... import device
 from ...core import i18n
 from ...core.contracts import Job, JobStatus
+from ...ui import adaptive, files
 from ...ui.widgets.choice import ChoiceCard, ChoiceGroup
 from ...ui.widgets.preview_tooltip import PreviewTooltip
 from ...ui.widgets.squishy_button import SquishyButton
@@ -85,6 +87,17 @@ MAGIC_ORDER = ("silence", "voice", "ducking", "vitalize", "subtitles", "watermar
 MAGIC_SIMPLE = ("silence", "voice", "ducking", "vitalize", "subtitles", "watermark")
 MAGIC_CHIP = {"silence": "~", "voice": "wav", "ducking": "mix", "vitalize": "renk", "subtitles": "srt", "watermark": "logo",
               "freeze": "kare", "greenscreen": "AI", "reframe": "9:16", "beat": "bpm", "colormatch": "LUT", "text_edit": "txt"}
+#: Android paketinde olmayan ve orada kurulamayan paketlere dayanan otomasyonlar: altyazı ve metinle kurgu
+#: (faster-whisper), ritme göre kes (librosa), dikeye çevir (OpenCV), yapay zekâ ile arka plan silme (rembg).
+#: Masaüstünde "isteğe bağlı paketi kur" kartı çıkar; Android'de düğmeleri hiç gösterilmez (M21).
+ANDROID_UNAVAILABLE = frozenset({"subtitles", "text_edit", "beat", "reframe", "greenscreen"})
+
+
+def magic_names(names: Sequence[str]) -> List[str]:
+    """Bu cihazda sunulan otomasyonlar (Android'de kurulamayan paket isteyenler çıkar)."""
+    if device.is_android():
+        return [n for n in names if n not in ANDROID_UNAVAILABLE]
+    return list(names)
 
 
 class TranscriptDialog(QDialog):
@@ -129,12 +142,12 @@ class MagicGrid(QWidget):
         self.svc = svc
         self.make_dialog: Callable[[Sequence[Any]], Any] = lambda segs: TranscriptDialog(segs, self)
         svc.transcriptReady.connect(self._on_transcript)
-        self.pick_file: Callable[[], str] = lambda: QFileDialog.getOpenFileName(self, i18n.t("editor.magic.pick_logo"), "", "Images (*.png *.jpg *.jpeg *.webp)")[0]
+        self.pick_file: Callable[[], str] = lambda: files.pick_file(self, i18n.t("editor.magic.pick_logo"), "Images (*.png *.jpg *.jpeg *.webp)")
         self.buttons: Dict[str, ChoiceCard] = {}
         grid = QGridLayout(self)
         grid.setContentsMargins(0, 0, 0, 0)
         grid.setSpacing(10)
-        for i, name in enumerate(names):
+        for i, name in enumerate(magic_names(names)):
             card = ChoiceCard(name, i18n.t(f"editor.auto.{name}"), i18n.t(f"editor.magic.{name}.desc"), "sliders", accent="mint",
                               trailing=MAGIC_CHIP.get(name, ""))
             card.setCheckable(False)
@@ -217,12 +230,16 @@ class QualityPicker(QWidget):
         if pro:
             row = QGridLayout()
             row.setSpacing(6)
-            self.codec = self._combo(row, 0, "editor.pro.codec", [("h264", "H.264"), ("h265", "H.265 / HEVC"), ("prores", "ProRes 422 HQ"), ("wav", "WAV")])
+            android = device.is_android()                     # Android FFmpeg'inde x265, NVENC ve VA-API yok (M21)
+            codecs = [("h264", "H.264"), ("h265", "H.265 / HEVC"), ("prores", "ProRes 422 HQ"), ("wav", "WAV")]
+            self.codec = self._combo(row, 0, "editor.pro.codec", [c for c in codecs if not (android and c[0] == "h265")])
             self.rate = self._combo(row, 1, "editor.pro.rate", [("vbr", "VBR"), ("cbr", "CBR")])
             self.passes = self._combo(row, 2, "editor.pro.passes", [("1", "1"), ("2", "2")])
             self.fps = self._combo(row, 3, "editor.pro.fps", [("0", i18n.t("editor.pro.auto")), ("24", "24"), ("25", "25"), ("30", "30"), ("50", "50"), ("60", "60")])
-            self.hw = self._combo(row, 4, "editor.pro.hw", [("auto", i18n.t("editor.hw.auto")), ("cpu", i18n.t("editor.hw.cpu")),
-                                                             ("nvenc", i18n.t("editor.hw.nvenc")), ("vaapi", i18n.t("editor.hw.vaapi"))])
+            hw_items = [("auto", i18n.t("editor.hw.auto")), ("cpu", i18n.t("editor.hw.cpu"))]
+            if not android:
+                hw_items += [("nvenc", i18n.t("editor.hw.nvenc")), ("vaapi", i18n.t("editor.hw.vaapi"))]
+            self.hw = self._combo(row, 4, "editor.pro.hw", hw_items)
             self._update_hw_items()
             svc.hardwareChanged.connect(self._update_hw_items)
             self.lufs = QDoubleSpinBox()
@@ -252,7 +269,8 @@ class QualityPicker(QWidget):
         if self.hw is None:
             return
         hw = self.svc.hardware()
-        for i, key in enumerate(("auto", "cpu", "nvenc", "vaapi")):
+        for i in range(self.hw.count()):
+            key = str(self.hw.itemData(i))
             self.hw.model().item(i).setEnabled(key in ("auto", "cpu") or bool(hw.get(key)))      # type: ignore[union-attr]
 
     @property
@@ -295,7 +313,10 @@ class QualityPicker(QWidget):
 
 
 class ExportPanel(QWidget):
-    """Platform kutucukları + kalite seçici + "Dışa Aktar" + ilerleme + "Dosyayı Klasörde Göster" (+ Legend'de iş kuyruğu)."""
+    """Platform kutucukları + kalite seçici + "Dışa Aktar" + ilerleme + "Dosyayı Klasörde Göster" (+ Legend'de iş kuyruğu).
+
+    Android'de "Dosyayı Klasörde Göster" yerine "Aç", "Paylaş", "Galeriye kaydet" (``kadraj.ui.files``, M20).
+    """
 
     def __init__(self, svc: EditorService, pro: bool = False, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -309,7 +330,7 @@ class ExportPanel(QWidget):
         lay.addWidget(_label(i18n.t("editor.export.quality"), "h2"))
         self.quality = QualityPicker(svc, pro)
         lay.addWidget(self.quality)
-        row = QHBoxLayout()
+        row = adaptive.hbox()                                           # telefonda düğmeler alt satıra geçer
         self.export_btn = SquishyButton(i18n.t("editor.export.go"), variant="primary", icon="download", accent="mint")
         self.reveal_btn = SquishyButton(i18n.t("editor.reveal"), variant="secondary", icon="folder")
         self.progress = QProgressBar()
@@ -319,6 +340,9 @@ class ExportPanel(QWidget):
         self.status = _label("", "hint")
         row.addWidget(self.export_btn)
         row.addWidget(self.reveal_btn)
+        self.file_btns = files.mobile_buttons(lambda: self.svc.last_export, self.status.setText, open_button=True)
+        for b in self.file_btns:                                       # Android: Aç, Paylaş, Galeriye kaydet
+            row.addWidget(b)
         row.addWidget(self.progress, 1)
         lay.addLayout(row)
         lay.addWidget(self.status)
@@ -326,7 +350,7 @@ class ExportPanel(QWidget):
         if self.queue is not None:
             self.queue.setMaximumHeight(110)
             lay.addWidget(self.queue)
-        self.reveal_btn.hide()
+        self._show_file_buttons(False)
         self.platforms.templateChanged.connect(self.quality.set_template)
         self.export_btn.clicked.connect(self.start)
         self.reveal_btn.clicked.connect(lambda: self.svc.reveal())
@@ -336,8 +360,13 @@ class ExportPanel(QWidget):
     def current_settings(self) -> render.RenderSettings:
         return self.quality.settings()
 
+    def _show_file_buttons(self, visible: bool) -> None:
+        self.reveal_btn.setVisible(visible and files.can_reveal())
+        for b in self.file_btns:
+            b.setVisible(visible)
+
     def start(self) -> Optional[Job]:
-        self.reveal_btn.hide()
+        self._show_file_buttons(False)
         job = self.svc.start_render(self.current_settings())
         if job is not None:
             self.progress.setValue(0)
@@ -366,7 +395,7 @@ class ExportPanel(QWidget):
     def _on_finished(self, path: str) -> None:
         self.progress.setValue(100)
         self.status.setText(i18n.t("editor.export.done", name=Path(path).name))
-        self.reveal_btn.show()
+        self._show_file_buttons(True)
 
 
 class LibraryPanel(QWidget):
@@ -375,11 +404,11 @@ class LibraryPanel(QWidget):
     def __init__(self, svc: EditorService, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.svc = svc
-        self.choose_files: Callable[[], List[str]] = lambda: QFileDialog.getOpenFileNames(self, i18n.t("editor.lib.import"))[0]
+        self.choose_files: Callable[[], List[str]] = lambda: files.pick_files(self, i18n.t("editor.lib.import"))
         self.setAcceptDrops(True)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
-        row = QHBoxLayout()
+        row = adaptive.hbox()                                           # telefonda düğmeler alt satıra geçer
         self.filter = QComboBox()
         for key, text in (("", i18n.t("editor.lib.all")), ("video", i18n.t("editor.lib.video")), ("audio", i18n.t("editor.lib.audio")),
                           ("image", i18n.t("editor.lib.image"))):
@@ -400,8 +429,11 @@ class LibraryPanel(QWidget):
         self.filter.currentIndexChanged.connect(lambda _i: self.refresh())
         self.import_btn.clicked.connect(self._import)
         self.scan_btn.clicked.connect(lambda: (self.svc.scan_project_folders(), self.refresh()))
-        self.list.itemDoubleClicked.connect(self._add)
-        self.list.itemEntered.connect(self._hover)
+        if adaptive.is_mobile():                   # dokunmatikte çift dokunma ve üzerine gelme yok: tek dokunuş ekler
+            self.list.itemClicked.connect(self._add)
+        else:
+            self.list.itemDoubleClicked.connect(self._add)
+            self.list.itemEntered.connect(self._hover)
         svc.libraryChanged.connect(self.refresh)
         self.refresh()
 
@@ -614,7 +646,7 @@ class InspectorPanel(QWidget):
         super().__init__(parent)
         self.svc = svc
         self._busy = False
-        self.pick_lut: Callable[[], str] = lambda: QFileDialog.getOpenFileName(self, "LUT", "", "LUT (*.cube)")[0]
+        self.pick_lut: Callable[[], str] = lambda: files.pick_file(self, "LUT", "LUT (*.cube)")
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(6)

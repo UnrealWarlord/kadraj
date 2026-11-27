@@ -1,13 +1,20 @@
-"""Fotoğraf bileşenleri: ``VariationGrid`` (A/B galeri + kalp + büyüt), ``MaskPainter`` (fırçalı inpainting maskesi)."""
+"""Fotoğraf bileşenleri: ``VariationGrid`` (A/B galeri + kalp + büyüt), ``MaskPainter`` (fırçalı inpainting maskesi).
+
+Android'de her kartta "⋯" menüsü: Aç, Paylaş, Galeriye kaydet (``kadraj.ui.files``, M20); sonuç galerinin altındaki
+not satırında görünür.
+"""
 from __future__ import annotations
 
-from typing import Any, List, Optional, Sequence, Tuple
+from typing import Any, Callable, List, Optional, Sequence, Tuple
 
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPixmap
-from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QToolButton, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QLabel, QMenu, QPushButton, QSizePolicy, QToolButton, QVBoxLayout,
+                               QWidget)
 
+from ... import device
 from ...core import i18n
+from ...ui import adaptive, files
 from ...ui.theme.manager import ThemedMixin
 from . import imageops
 from .service import Variation
@@ -21,9 +28,11 @@ class VariationCard(QFrame):
     upscaleRequested = Signal(int, int)
     coverRequested = Signal(int)
 
-    def __init__(self, v: Variation, simple: bool, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, v: Variation, simple: bool, parent: Optional[QWidget] = None, *,
+                 note: Optional[Callable[[str], None]] = None) -> None:
         super().__init__(parent)
         self.v = v
+        self.more: Optional[QToolButton] = None
         self.setProperty("role", "card")
         lay = QVBoxLayout(self)
         lay.setContentsMargins(8, 8, 8, 8)
@@ -55,11 +64,30 @@ class VariationCard(QFrame):
         row.addStretch(1)
         row.addWidget(self.up2)
         row.addWidget(self.up4)
+        if device.is_android():
+            self.more = self._file_menu(note)
+            row.addWidget(self.more)
         lay.addLayout(row)
         if not simple:
             meta = QLabel(f"{v.provider} · {v.model} · ${v.cost_usd:.3f}" + (f" · seed {v.seed}" if v.seed is not None else ""))
             meta.setProperty("role", "mono")
             lay.addWidget(meta)
+
+    def _file_menu(self, note: Optional[Callable[[str], None]]) -> QToolButton:
+        """"⋯": görseli aç, paylaş ya da galeriye kaydet (Android)."""
+        btn = QToolButton()
+        btn.setObjectName("file_menu")
+        btn.setText("⋯")
+        btn.setAccessibleName(i18n.t("files.share"))
+        btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        menu = QMenu(btn)
+        path = self.v.path
+        menu.addAction(i18n.t("files.open"), lambda: files.open_path(path, note))
+        menu.addAction(i18n.t("files.share"), lambda: files.share_path(path, note))
+        if files.can_save_to_gallery():
+            menu.addAction(i18n.t("files.gallery"), lambda: files.save_to_gallery(path, note))
+        btn.setMenu(menu)
+        return btn
 
     def mousePressEvent(self, e) -> None:
         self.selected.emit(self.v.id)
@@ -74,11 +102,24 @@ class VariationGrid(QWidget):
     def __init__(self, simple: bool = True, columns: int = 2, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.simple, self.columns = simple, columns
-        self.grid = QGridLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(6)
+        self.grid = QGridLayout()
         self.grid.setContentsMargins(0, 0, 0, 0)
         self.grid.setSpacing(10)
+        outer.addLayout(self.grid)
+        self.note = QLabel("")                                   # Android dosya eylemlerinin sonucu
+        self.note.setProperty("role", "hint")
+        self.note.setWordWrap(True)
+        self.note.hide()
+        outer.addWidget(self.note)
         self.cards: List[VariationCard] = []
         self.selected_id: Optional[int] = None
+
+    def set_note(self, text: str) -> None:
+        self.note.setText(text)
+        self.note.setVisible(bool(text))
 
     def set_variations(self, vs: Sequence[Variation]) -> None:
         for c in self.cards:
@@ -87,7 +128,7 @@ class VariationGrid(QWidget):
             c.deleteLater()
         self.cards = []
         for i, v in enumerate(vs):
-            card = VariationCard(v, self.simple)
+            card = VariationCard(v, self.simple, note=self.set_note)
             card.selected.connect(self._select)
             card.favoriteToggled.connect(self.favoriteToggled)
             card.upscaleRequested.connect(self.upscaleRequested)
@@ -106,6 +147,7 @@ class MaskPainter(ThemedMixin, QWidget):
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
+        adaptive.direct_touch(self)                 # dokunmatik: sürükleme sayfayı kaydırmaz
         self.image: Optional[QImage] = None
         self.brush = 36.0
         self.strokes: List[Tuple[List[Tuple[float, float]], float]] = []

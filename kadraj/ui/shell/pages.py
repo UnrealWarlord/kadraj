@@ -5,11 +5,12 @@ from typing import Optional
 
 from PySide6.QtCore import QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget
 
 from ...core import i18n
 from ...core.contracts import SmartError, UiMode
 from ...core.registry import ModuleEntry
+from .. import adaptive
 from ..theme.manager import ThemedMixin
 from ..widgets.icons import draw_icon
 from ..widgets.smart_error_card import SmartErrorCard
@@ -103,8 +104,9 @@ class PageFrame(QFrame):
     def __init__(self, title: str, page: QWidget, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(28, 18, 28, 18)
-        lay.setSpacing(12)
+        side, edge = adaptive.margin(28, 10), adaptive.margin(18, 8)
+        lay.setContentsMargins(side, edge, side, edge)
+        lay.setSpacing(adaptive.margin(12, 8))
         row = QHBoxLayout()
         self.back = QPushButton("←  " + i18n.t("nav.home"))
         self.back.setProperty("role", "topbtn")
@@ -118,4 +120,13 @@ class PageFrame(QFrame):
         row.addStretch(1)
         lay.addLayout(row)
         self.page = page
-        lay.addWidget(page, 1)
+        if adaptive.is_phone():                 # telefonda sayfa dikeyde kayar; yatayda ekrana sığar (6. adım)
+            self.title.setWordWrap(True)
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QFrame.Shape.NoFrame)
+            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            scroll.setWidget(page)
+            lay.addWidget(scroll, 1)
+        else:
+            lay.addWidget(page, 1)

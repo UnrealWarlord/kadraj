@@ -2,7 +2,8 @@
 
 * Başarısız iş → hata kartı: başlık, sade neden, numaralı adımlar, düğmeler. Kart, iş kaydındaki ``_error``
   (``SmartError.to_dict()``) ile kurulur; o yoksa düz metin hata + genel adımlar. "Olmadı" tek başına gösterilmez.
-* Biten iş → "Oynat", "Klasörde Göster", "Düzenlemeye gönder" (düzenleyici kitaplığına ``add_media``).
+* Biten iş → "Oynat", "Klasörde Göster", "Düzenlemeye gönder" (düzenleyici kitaplığına ``add_media``). Android'de
+  "Klasörde Göster" yerine "Paylaş" ve "Galeriye kaydet" (``kadraj.ui.files``, M20).
 * Kalite: ``quality_top`` — servis ``quality_unavailable(info, kalite)`` sağlıyorsa onu, yoksa video yüksekliğini kullanır.
 
 Servis ve motor bu dosyada değişmez; sayfa yalnızca ``ctx.jobs`` ve ``ctx.service`` üzerinden okur.
@@ -16,8 +17,10 @@ from PySide6.QtCore import QUrl, Qt
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
+from ... import device
 from ...core import i18n
 from ...core.contracts import Severity, SmartAction, SmartError, Topics
+from ...ui import adaptive, files
 from ...ui.widgets import SmartErrorCard, SquishyButton
 from .service import fit_quality, quality_states
 from .strings import K
@@ -94,14 +97,18 @@ def unavailable_text(top: int) -> str:
 
 
 # ---------------------------------------------------------------------------------------------- dosya eylemleri
-def open_file(path: str) -> bool:
+def open_file(path: str, note: Optional[files.Note] = None) -> bool:
     file = Path(path)
     if not file.is_file():
         return False
+    if device.is_android():                                    # köprüyle uygun uygulama (M20)
+        return files.open_path(file, note)
     return bool(QDesktopServices.openUrl(QUrl.fromLocalFile(str(file))))
 
 
 def show_in_folder(path: str) -> bool:
+    if not files.can_reveal():
+        return False
     folder = Path(path).parent
     if not folder.is_dir():
         return False
@@ -172,14 +179,18 @@ class RecentDownloadRow(QFrame):
         self.note.setWordWrap(True)
         self.note.hide()
         if status == "done" and path:
-            buttons = QHBoxLayout()
+            buttons = adaptive.hbox()                                   # telefonda düğmeler alt satıra geçer
             play = SquishyButton(i18n.t(K.BTN_PLAY), variant="secondary")
             play.clicked.connect(lambda _c=False, p=path: self._play(p))
-            folder = SquishyButton(i18n.t(K.BTN_SHOW_FOLDER), variant="secondary")
-            folder.clicked.connect(lambda _c=False, p=path: self._folder(p))
+            row_buttons = [play]
+            if files.can_reveal():
+                folder = SquishyButton(i18n.t(K.BTN_SHOW_FOLDER), variant="secondary")
+                folder.clicked.connect(lambda _c=False, p=path: self._folder(p))
+                row_buttons.append(folder)
+            row_buttons += files.mobile_buttons(lambda p=path: p, self._set_note)     # Android: Paylaş, Galeriye kaydet
             send = SquishyButton(i18n.t(K.BTN_SEND_EDITOR), variant="primary", accent="mint")
             send.clicked.connect(lambda _c=False, p=path: self._send(p))
-            for b in (play, folder, send):
+            for b in (*row_buttons, send):
                 buttons.addWidget(b)
             buttons.addStretch(1)
             lay.addLayout(buttons)
@@ -209,7 +220,7 @@ class RecentDownloadRow(QFrame):
         self.note.setVisible(bool(text))
 
     def _play(self, path: str) -> None:
-        if not open_file(path):
+        if not open_file(path, self._set_note) and not device.is_android():   # Android'de nedeni files yazar
             self._set_note(i18n.t(K.PLAY_FAILED))
 
     def _folder(self, path: str) -> None:

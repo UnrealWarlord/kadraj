@@ -15,7 +15,7 @@ from PySide6.QtGui import QColor, QFontMetrics, QImage, QPainter, QPainterPath, 
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from ...core import i18n
-from ...ui import fonts
+from ...ui import adaptive, fonts
 from ...ui.theme.manager import ThemedMixin
 from ...ui.theme.tokens import mix
 from . import audio, scopes, snapping
@@ -47,6 +47,7 @@ class TimelineView(ThemedMixin, QWidget):
 
     def __init__(self, svc: Any, *, pro: bool = False, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
+        adaptive.direct_touch(self)                 # dokunmatik: sürükleme sayfayı kaydırmaz
         self.svc, self.pro = svc, pro
         self.px_per_s = 60.0 if pro else 44.0
         self._drag: Optional[Dict[str, Any]] = None
@@ -383,6 +384,7 @@ class PreviewView(ThemedMixin, QWidget):
 
     def __init__(self, *, pro: bool = False, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
+        adaptive.direct_touch(self, when=lambda: self.compare)   # yalnız karşılaştırma sürgüsü sürüklenir
         self.pro = pro
         self.after: Optional[QImage] = None
         self.before: Optional[QImage] = None
@@ -571,6 +573,7 @@ class EqView(ThemedMixin, QWidget):
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
+        adaptive.direct_touch(self)                 # dokunmatik: sürükleme sayfayı kaydırmaz
         self.gains: List[float] = [0.0] * len(EQ_BANDS)
         self._active = -1
         self.setMinimumSize(280, 130)
@@ -670,6 +673,7 @@ class BezierEditor(ThemedMixin, QWidget):
 
     def __init__(self, value: Tuple[float, float, float, float] = (0.25, 0.1, 0.25, 1.0), parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
+        adaptive.direct_touch(self)                 # dokunmatik: sürükleme sayfayı kaydırmaz
         self.value = tuple(value)
         self._drag = -1
         self.setMinimumSize(120, 120)
@@ -738,6 +742,7 @@ class CurveView(ThemedMixin, QWidget):
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
+        adaptive.direct_touch(self)                 # dokunmatik: sürükleme sayfayı kaydırmaz
         self.points: List[Tuple[float, float]] = []
         self.duration = 5.0
         self.vmax = 4.0

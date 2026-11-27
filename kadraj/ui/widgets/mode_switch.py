@@ -25,6 +25,7 @@ class ModeSwitch(ThemedMixin, QWidget):
 
     def __init__(self, mode: "UiMode | str" = UiMode.SIMPLE, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
+        self._short = False                 # dar üst çubuk (dikey tablet): Basit'te de kısa adlar
         self._mode = UiMode.coerce(mode)
         self._pos = 0.0 if self._mode is UiMode.SIMPLE else 1.0
         self._anim = QPropertyAnimation(self, b"position", self)
@@ -49,6 +50,13 @@ class ModeSwitch(ThemedMixin, QWidget):
         self._mode = new
         self._slide(1.0 if new is UiMode.LEGEND else 0.0, animate)
         self._refresh_a11y()
+
+    def set_short(self, short: bool) -> None:
+        """Dar üst çubukta (dikey tablet) Basit'te de kısa adlar: "Basit" / "Legend"."""
+        if short != self._short:
+            self._short = short
+            self._resize()
+            self.update()
 
     def _select(self, mode: UiMode) -> None:
         if mode is self._mode:
@@ -83,6 +91,8 @@ class ModeSwitch(ThemedMixin, QWidget):
         tk = self.tk
         if tk.is_legend:
             return i18n.upper(i18n.t("mode.simple_short")), i18n.upper(i18n.t("mode.legend_short"))
+        if self._short:
+            return i18n.t("mode.simple_short"), i18n.t("mode.legend_short")
         return i18n.t("mode.simple"), i18n.t("mode.legend")
 
     def _font(self):

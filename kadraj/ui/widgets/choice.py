@@ -54,6 +54,9 @@ class ChoiceCard(ThemedMixin, QPushButton):
     def sizeHint(self) -> QSize:
         return QSize(self.tk.px(260), self.height())
 
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 — metin kısaltılarak çizilir; telefonda kart daralabilir
+        return QSize(self.tk.px(160), self.height())
+
     def paintEvent(self, _e) -> None:
         tk = self.tk
         on = self.isChecked()
@@ -109,7 +112,11 @@ class ChoiceCard(ThemedMixin, QPushButton):
 
 
 class ChoiceGroup(QWidget):
-    """Kart ızgarası. ``exclusive=True`` radyo, ``False`` çoklu seçim. ``selectionChanged(list[str])``."""
+    """Kart ızgarası. ``exclusive=True`` radyo, ``False`` çoklu seçim. ``selectionChanged(list[str])``.
+
+    ``columns`` en çok sütun sayısıdır: genişlik kartları rahat sığdırmıyorsa (dar pencere, tablet dikey, telefon)
+    sütun azalır, kartlar alt alta geçer. Yükseklik genişliğe göre bildirilir (``heightForWidth``).
+    """
 
     selectionChanged = Signal(list)
 
@@ -117,7 +124,8 @@ class ChoiceGroup(QWidget):
                  parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._exclusive = exclusive
-        self._columns = max(1, columns)
+        self._max_columns = max(1, columns)
+        self._columns = self._max_columns
         self._cards: List[ChoiceCard] = []
         self._group = QButtonGroup(self)
         self._group.setExclusive(exclusive)
@@ -146,10 +154,64 @@ class ChoiceGroup(QWidget):
             c.setChecked(c.choice_id in ids)
 
     def set_columns(self, columns: int) -> None:
-        self._columns = max(1, columns)
-        for i, c in enumerate(self._cards):
+        """En çok sütun sayısı; gerçek sayı genişliğe göre (``columns_for``)."""
+        self._max_columns = max(1, columns)
+        self._apply_columns(self.columns_for(self.width()) if self.width() > 0 else self._max_columns)
+
+    def columns(self) -> int:
+        return self._columns
+
+    def columns_for(self, width: int) -> int:
+        """Bu genişlikte kaç sütun: kartlar önerilen genişlikleriyle sığmalı (en az bir sütun)."""
+        if not self._cards:
+            return self._max_columns
+        card = max(c.sizeHint().width() for c in self._cards)
+        gap = self._grid.horizontalSpacing()
+        fit = (max(0, width) + gap) // max(1, card + gap)
+        return max(1, min(self._max_columns, fit, len(self._cards)))
+
+    def _apply_columns(self, columns: int) -> None:
+        if columns == self._columns and self._grid.count() == len(self._cards):
+            return
+        self._columns = columns
+        for c in self._cards:
             self._grid.removeWidget(c)
-            self._grid.addWidget(c, i // self._columns, i % self._columns)
+        for i, c in enumerate(self._cards):
+            self._grid.addWidget(c, i // columns, i % columns)
+        for col in range(self._max_columns):
+            self._grid.setColumnStretch(col, 1 if col < columns else 0)
+        self.updateGeometry()
+
+    def _rows_height(self, columns: int) -> int:
+        if not self._cards:
+            return 0
+        rows = [self._cards[i:i + columns] for i in range(0, len(self._cards), columns)]
+        heights = [max(c.sizeHint().height() for c in row) for row in rows]
+        return sum(heights) + self._grid.verticalSpacing() * (len(rows) - 1)
+
+    def hasHeightForWidth(self) -> bool:  # noqa: N802
+        return True
+
+    def heightForWidth(self, width: int) -> int:  # noqa: N802
+        return self._rows_height(self.columns_for(width))
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 — tek sütuna kadar daralabilir
+        if not self._cards:
+            return super().minimumSizeHint()
+        width = max(c.minimumSizeHint().width() for c in self._cards)
+        return QSize(width, self._rows_height(1))
+
+    def sizeHint(self) -> QSize:  # noqa: N802
+        if not self._cards:
+            return super().sizeHint()
+        columns = min(self._max_columns, len(self._cards))
+        card = max(c.sizeHint().width() for c in self._cards)
+        width = card * columns + self._grid.horizontalSpacing() * (columns - 1)
+        return QSize(width, self._rows_height(columns))
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._apply_columns(self.columns_for(self.width()))
 
 
 #: Adım 4/5/7 için adlandırılmış kısayollar (şimdilik aynı davranış).

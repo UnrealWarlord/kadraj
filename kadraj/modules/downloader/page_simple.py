@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QFrame, QHBoxLayout, QLa
 
 from ...core import i18n
 from ...core.contracts import Accent, Job
+from ...ui import adaptive
 from ...ui.theme.manager import ThemedMixin
 from ...ui.widgets import ChoiceCard, ChoiceGroup, SmartErrorCard, SquishyButton
 from ...ui.widgets.surface import page_surface_qss
@@ -122,7 +123,7 @@ class DownloaderSimplePage(ThemedMixin, QWidget):
         recent_lay.addLayout(self.recent_rows)
         lay.addWidget(self.recent_frame)
 
-        foot = QHBoxLayout()
+        foot = adaptive.hbox()                                        # telefonda hedef klasör ve düğme alt alta
         self.target = QLabel("")
         self.target.setProperty("role", "muted")
         self.go = SquishyButton(i18n.t(K.BTN_DOWNLOAD), variant="primary", accent=Accent.PEACH)
@@ -131,6 +132,9 @@ class DownloaderSimplePage(ThemedMixin, QWidget):
         lay.addLayout(foot)
         self.status = QLabel("")
         self.status.setProperty("role", "hint")
+        if adaptive.is_mobile():
+            self.target.setWordWrap(True)
+            self.status.setWordWrap(True)
         lay.addWidget(self.status)
         lay.addStretch(1)
 
@@ -228,7 +232,7 @@ class DownloaderSimplePage(ThemedMixin, QWidget):
         self.go.setEnabled(self._info is not None)
         self._refresh_range_text()
         self._refresh_sizes()
-        self.target.setText(i18n.t(K.TARGET, folder=self._folder_text()))
+        self.target.setText(i18n.t(K.TARGET, folder=adaptive.breakable(self._folder_text())))
 
     def _refresh_range_text(self) -> None:
         d = self.service.draft

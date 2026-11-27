@@ -12,6 +12,7 @@ from typing import Any, Optional
 from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget)
 
 from ...core import i18n
+from ...ui import adaptive
 from ...ui.widgets.help_bubble import HelpBubble
 from ...ui.widgets.squishy_button import SquishyButton
 from .page_base import EditorPageBase
@@ -26,7 +27,8 @@ def _card() -> tuple:
     f = QFrame()
     f.setProperty("role", "card")
     lay = QVBoxLayout(f)
-    lay.setContentsMargins(16, 14, 16, 14)
+    side = adaptive.margin(16, 10)
+    lay.setContentsMargins(side, 14, side, 14)
     lay.setSpacing(10)
     return f, lay
 
@@ -73,8 +75,8 @@ class EditorSimplePage(EditorPageBase):
         self._sync()
 
     # -- yapı -------------------------------------------------------------------------------------------------------------------
-    def _build_header(self) -> QHBoxLayout:
-        row = QHBoxLayout()
+    def _build_header(self):
+        row = adaptive.hbox()                                           # telefonda ad, süre ve düğmeler sarılır
         self.project_label = QLabel("")
         self.project_label.setProperty("role", "h2")
         self.duration_label = _label("", "hint")
@@ -94,7 +96,7 @@ class EditorSimplePage(EditorPageBase):
         self.preview = PreviewView()
         self.preview.setMinimumHeight(260)
         lay.addWidget(self.preview, 1)
-        row = QHBoxLayout()
+        row = adaptive.hbox()
         self.play_btn = SquishyButton(i18n.t("editor.simple.play"), variant="primary", icon="check")
         self.time_label = QLabel("0:00 / 0:00")
         self.time_label.setProperty("role", "mono")
@@ -105,7 +107,7 @@ class EditorSimplePage(EditorPageBase):
         row.addStretch(1)
         row.addWidget(self.compare_btn)
         lay.addLayout(row)
-        orient = QHBoxLayout()
+        orient = adaptive.hbox()
         self.landscape_btn = QPushButton(i18n.t("editor.simple.landscape"))
         self.portrait_btn = QPushButton(i18n.t("editor.simple.portrait"))
         for b in (self.landscape_btn, self.portrait_btn):
@@ -142,7 +144,7 @@ class EditorSimplePage(EditorPageBase):
 
     def _build_timeline(self) -> QWidget:
         card, lay = _card()
-        head = QHBoxLayout()
+        head = adaptive.hbox()
         title = QLabel(i18n.t("editor.simple.timeline"))
         title.setProperty("role", "h2")
         self.magnet_btn = QPushButton("")
@@ -205,7 +207,8 @@ class EditorSimplePage(EditorPageBase):
 
     def _magnet(self, on: bool) -> None:
         self.svc.set_snap(on)
-        self.magnet_btn.setText(i18n.t("editor.simple.magnet" if on else "editor.simple.magnet_off"))
+        on_key = "editor.simple.magnet_short" if adaptive.is_phone() else "editor.simple.magnet"
+        self.magnet_btn.setText(i18n.t(on_key if on else "editor.simple.magnet_off"))
 
     def _seek(self, t: float) -> None:
         self.svc.set_playhead(t, snap=True, px_per_s=self.timeline.px_per_s)

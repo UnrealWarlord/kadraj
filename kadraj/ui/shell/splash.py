@@ -14,8 +14,9 @@ from PySide6.QtCore import QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QGuiApplication, QPainter, QPen
 from PySide6.QtWidgets import QLabel, QPushButton, QVBoxLayout, QWidget
 
-from ... import __version__
+from ... import __version__, device
 from ...core import i18n, updater
+from .. import adaptive
 from ..theme.manager import ThemedMixin, current_tokens
 from ..widgets.lockup import Lockup
 from .startup import ToolStatus, detect_tools, summary_line
@@ -46,13 +47,15 @@ class SplashScreen(ThemedMixin, QWidget):
         self._run: Optional[updater.BackgroundRun] = None
         self._update_skipped = False
         tk = self.tk
-        self.resize(tk.px(720), tk.px(460))
+        phone = adaptive.is_phone()
+        adaptive.fit_dialog(self, tk.px(720), tk.px(460))              # telefonda ekran genişliği kadar
 
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(tk.px(48), tk.px(40), tk.px(48), tk.px(32))
+        side = 20 if phone else tk.px(48)
+        lay.setContentsMargins(side, tk.px(40), side, tk.px(32))
         lay.setSpacing(tk.px(14))
         lay.addStretch(2)
-        self.lockup = Lockup(wordmark_px=tk.px(64), show_mark=True)
+        self.lockup = Lockup(wordmark_px=36 if phone else tk.px(64), show_mark=True)
         lay.addWidget(self.lockup, 0, Qt.AlignmentFlag.AlignHCenter)
         self.tagline = QLabel(i18n.t("splash.tagline"))
         self.tagline.setProperty("role", "muted")
@@ -62,6 +65,7 @@ class SplashScreen(ThemedMixin, QWidget):
         lay.addStretch(3)
         self.status = QLabel(i18n.t("splash.preparing"))
         self.status.setProperty("role", "muted")
+        self.status.setWordWrap(phone)
         lay.addWidget(self.status)
         self._bar_top = lay.count()
         lay.addSpacing(tk.px(14))                     # ilerleme çubuğu bu boşluğa boyanır
@@ -69,6 +73,7 @@ class SplashScreen(ThemedMixin, QWidget):
         self.footer.setProperty("role", "mono")
         self.footer.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.footer.setStyleSheet("font-size: 11px;")
+        self.footer.setWordWrap(phone)
         lay.addWidget(self.footer)
         self.skip_btn = QPushButton(i18n.t("splash.skip"))        # güncelleme beklenirken görünür; sürer ama beklemez
         self.skip_btn.setVisible(False)
@@ -115,6 +120,8 @@ class SplashScreen(ThemedMixin, QWidget):
     def _status_text(self, frac: float) -> str:
         steps = [("splash.step_settings", None), ("splash.step_ffmpeg", "ffmpeg"),
                  ("splash.step_ytdlp", "yt-dlp"), ("splash.step_ai", "ollama"), ("splash.step_ready", None)]
+        if device.is_android():                                         # Android'de yerel yapay zekâ yok (M21)
+            steps = [step for step in steps if step[0] != "splash.step_ai"]
         key, tool = steps[min(len(steps) - 1, int(frac * len(steps)))]
         return i18n.t(key)
 

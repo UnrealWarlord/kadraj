@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (QDialog, QHBoxLayout, QLabel, QScrollArea, QVBoxL
 from ... import __version__, about, consent
 from ...core import i18n
 from ...core.contracts import SmartError
+from .. import adaptive
 from ..widgets.lockup import Lockup
 from ..widgets.smart_error_card import SmartErrorCard
 from ..widgets.squishy_button import SquishyButton
@@ -21,23 +22,38 @@ class ConsentDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle(i18n.t("consent.title"))
         self.setModal(True)
-        self.resize(640, 560)
+        adaptive.fit_dialog(self, 640, 560)
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(32, 28, 32, 24)
+        m = adaptive.margin(32, 16)
+        lay.setContentsMargins(m, adaptive.margin(28, 14), m, adaptive.margin(24, 12))
         lay.setSpacing(14)
-        lay.addWidget(Lockup(wordmark_px=34, show_mark=True), 0, Qt.AlignmentFlag.AlignLeft)
+        lay.addWidget(Lockup(wordmark_px=adaptive.margin(34, 24), show_mark=True), 0, Qt.AlignmentFlag.AlignLeft)
+        body = QWidget()
+        text = QVBoxLayout(body)
+        text.setContentsMargins(0, 0, 0, 0)
+        text.setSpacing(14)
         title = QLabel(i18n.t("consent.title"))
         title.setProperty("role", "title")
-        lay.addWidget(title)
+        title.setWordWrap(True)
+        text.addWidget(title)
         for key in ("consent.p1", "consent.p2", "consent.p3", "consent.p4"):
             lab = QLabel(i18n.t(key))
             lab.setWordWrap(True)
-            lay.addWidget(lab)
+            text.addWidget(lab)
         lic = QLabel(i18n.t("consent.license"))
         lic.setWordWrap(True)
         lic.setProperty("role", "muted")
-        lay.addWidget(lic)
-        lay.addStretch(1)
+        text.addWidget(lic)
+        text.addStretch(1)
+        if adaptive.is_phone():                 # telefonda metin ekrana sığmazsa kaydırılır, düğmeler hep görünür
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            scroll.setWidget(body)
+            lay.addWidget(scroll, 1)
+        else:
+            lay.addWidget(body, 1)
         row = QHBoxLayout()
         row.addStretch(1)
         self.decline = SquishyButton(i18n.t("consent.decline"), variant="secondary")
@@ -66,9 +82,10 @@ class AboutDialog(QDialog):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setWindowTitle(i18n.t("about.title"))
-        self.resize(520, 420)
+        adaptive.fit_dialog(self, 520, 420)
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(32, 28, 32, 24)
+        m = adaptive.margin(32, 16)
+        lay.setContentsMargins(m, adaptive.margin(28, 14), m, adaptive.margin(24, 12))
         lay.setSpacing(10)
         lay.addWidget(Lockup(wordmark_px=40, show_mark=True), 0, Qt.AlignmentFlag.AlignLeft)
         ver = QLabel(i18n.t("about.version", version=__version__) + "  ·  " + about.format_date())
@@ -93,7 +110,7 @@ class ErrorDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle(error.title)
         self.setModal(False)
-        self.resize(560, 360)
+        adaptive.fit_dialog(self, 560, 360)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(16, 16, 16, 16)
         self.card = SmartErrorCard(error)

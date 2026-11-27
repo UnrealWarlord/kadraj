@@ -72,9 +72,13 @@ def test_nvml_failure_mid_run_disables_gpu_without_raising():
     assert m.sample()["gpu"] is None and m.sample()["gpu"] is None and not m.gpu_available
 
 
-def test_missing_psutil_gives_none_not_crash():
-    s = SystemMonitor(psutil_module=False).sample()
-    assert s["cpu"] is None and s["ram_total"] is None and s["disk_free"] is None
+def test_missing_psutil_gives_none_not_crash(monkeypatch, tmp_path):
+    """psutil yoksa (Android paketi) işlemci ``None``; disk standart kütüphaneden, bellek ``/proc/meminfo``'dan (M21)."""
+    from kadraj.core import sysmon
+    monkeypatch.setattr(sysmon, "MEMINFO", tmp_path / "yok")             # /proc/meminfo okunamıyor
+    s = SystemMonitor(psutil_module=False).sample(str(tmp_path))
+    assert s["cpu"] is None and s["ram_total"] is None
+    assert s["disk_free"] is not None and s["disk_total"] >= s["disk_free"]
 
 
 def test_psutil_errors_are_swallowed():
