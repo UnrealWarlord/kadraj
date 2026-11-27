@@ -107,7 +107,8 @@ class RecordingLocationBar(QFrame):
 
     def set_folder(self, folder: Path) -> None:
         self._folder = Path(folder)
-        self.label.setText(i18n.t("recorder.location.label", path=str(self._folder)))
+        # telefonda yol ayırıcılardan bölünür: Windows'un "\\" ayırıcısında Qt satır kırmaz, uzun yol ekrandan taşardı
+        self.label.setText(i18n.t("recorder.location.label", path=adaptive.breakable(str(self._folder))))
         self.setAccessibleName(i18n.t("recorder.location.label", path=str(self._folder)))
         self.fit_height()
 
@@ -183,10 +184,10 @@ class RecordingResultCard(QFrame):
 
     def set_take(self, take: Take, duration_text: str) -> None:
         self._take = take
-        self.name.setText(take.path.name)
+        self.name.setText(adaptive.breakable(take.path.name))
         self.meta.setText(i18n.t("recorder.result.meta", duration=duration_text,
                                  rate=f"{take.sample_rate / 1000:g}"))
-        self.where.setText(i18n.t("recorder.result.where") + ": " + str(take.path))
+        self.where.setText(i18n.t("recorder.result.where") + ": " + adaptive.breakable(str(take.path)))
         self.setAccessibleName(take.path.name)
         self._set_note("")
         self.fit_height()

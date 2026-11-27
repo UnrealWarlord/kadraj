@@ -408,3 +408,15 @@ def test_desktop_kanban_has_no_move_box(ctx, qtbot):
     board = KanbanBoard()
     qtbot.addWidget(board)
     assert board.move_box is None
+
+
+def test_recording_folder_path_wraps_on_a_phone_even_with_backslashes(ctx, phone, qtbot):
+    """Windows yolunun "\\" ayırıcısında Qt satır kırmaz: kayıt yeri etiketi telefon genişliğini aşıyordu (Windows CI)."""
+    from kadraj.modules.recorder.location import RecordingLocationBar
+    from kadraj.ui.shell.topbar import PHONE_MIN_WIDTH
+    bar = RecordingLocationBar()
+    qtbot.addWidget(bar)
+    bar.set_folder(r"C:\Users\runneradmin\AppData\Local\Temp\pytest-of-runneradmin\pytest-0"
+                   r"\test_every_simple_page_fits_a0\KADRAJ_Projeler\Hizli_Kayitlar\02_Audio_WAV")
+    assert bar.label.minimumSizeHint().width() <= PHONE_MIN_WIDTH - 20
+    assert adaptive.plain(bar.label.text()).endswith(r"Hizli_Kayitlar\02_Audio_WAV")
