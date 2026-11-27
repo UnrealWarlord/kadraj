@@ -9,6 +9,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -147,6 +148,7 @@ def test_gallery_errors_have_codes(android, monkeypatch, tmp_path):
     assert not list((android / "Movies" / APP_NAME).glob("*"))          # yarım kopya kalmaz
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Android yolu (/storage/...) POSIX yoludur")
 def test_gallery_root_comes_from_the_app_folder(monkeypatch, tmp_path):
     monkeypatch.delenv("KADRAJ_SHARED_STORAGE", raising=False)
     monkeypatch.setenv("KADRAJ_PLATFORM", "android")

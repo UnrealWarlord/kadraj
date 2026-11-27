@@ -14,6 +14,9 @@ from kadraj import device, paths
 from kadraj.core import components as C
 from kadraj.core import updater as U
 
+# Android yalnız POSIX: HOME/Path.home(), "/storage/..." yolları ve "#!/bin/sh" betikleri Windows'ta anlamsız
+_POSIX_ONLY = pytest.mark.skipif(sys.platform == "win32", reason="Android'e özgü POSIX davranışı")
+
 _ANDROID_VARS = ("KADRAJ_PLATFORM", "KADRAJ_FORM_FACTOR", "KADRAJ_ANDROID_PRIVATE", "KADRAJ_ANDROID_LIBDIR",
                  "ANDROID_ARGUMENT", "ANDROID_PRIVATE")
 
@@ -97,6 +100,7 @@ def test_home_dir_on_android_lives_in_private_storage(android, monkeypatch):
     assert paths.home_dir() == Path("/tmp/override")
 
 
+@_POSIX_ONLY
 def test_prepare_android_environment_sets_home_to_documents_and_tmp_to_private(android, monkeypatch, tmp_path):
     private, _ = android
     docs = tmp_path / "storage" / "Android" / "data" / "org.insibag.kadraj" / "files" / "Documents"
@@ -115,6 +119,7 @@ def test_prepare_android_environment_falls_back_to_private_dir(android, monkeypa
     assert os.environ["HOME"] == str(private)
 
 
+@_POSIX_ONLY
 def test_prepare_android_environment_keeps_home_dir_stable_when_home_moves(android, monkeypatch, tmp_path):
     private, _ = android
     monkeypatch.delenv("ANDROID_PRIVATE")                       # özel klasör yalnız (yazılabilir) HOME'dan bilinsin
@@ -267,6 +272,7 @@ def test_android_ffmpeg_location_is_a_folder_of_named_links(tools, monkeypatch, 
     assert Path(C.ffmpeg_location()) == loc and (loc / "ffmpeg").resolve() == ff2.resolve()
 
 
+@_POSIX_ONLY
 def test_quickjs_version_comes_from_help_output(tools):
     _, libdir = tools
     qjs = libdir / "libqjs.so"

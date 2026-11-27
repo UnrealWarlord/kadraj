@@ -130,6 +130,7 @@ class RecorderSimplePage(RecorderPageBase):
         lay.addLayout(head)
         self.device_label = QLabel("")
         self.device_label.setProperty("role", "muted")
+        self.device_label.setWordWrap(True)                              # uzun aygıt adı telefonda satıra bölünür
         lay.addWidget(self.device_label)
         self.location = RecordingLocationBar()
         self.location.changeRequested.connect(self.change_recording_folder)
